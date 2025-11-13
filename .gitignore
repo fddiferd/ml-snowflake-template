@@ -1,0 +1,30 @@
+*.DS_Store*
+cache/*
+.venv/*
+*__pycache__*
+.env
+.cursor/*
+/config.py
+*.joblib
+*.csv
+*.joblib.gz
+*.zip
+.cache/*
+*.gz
+*.whl
+.keys/*
+project_status.txt
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.lock.hcl
+terraform.tfvars.json
+# End of Terraform
+src_old/*
+*.egg-info

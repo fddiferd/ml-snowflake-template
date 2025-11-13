@@ -1,0 +1,35 @@
+[project]
+name = "pltv"
+version = "0.1.0"
+description = "PLTV ML project"
+authors = [
+    {name = "fddiferd", email = "fddiferd@gmail.com"}
+]
+requires-python = ">=3.10,<3.12"
+dependencies = [
+    # Local dependency on shared src package
+    "ml-layer-src",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.5",
+    "ipykernel>=6.30.1",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pltv*"]
+
+# For deployment, we need to specify how to find the src dependency
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
+
+# Configuration for local development
+[tool.pip.find-links]
+# This allows pip to find the local src package during development
+file = "../../src"
