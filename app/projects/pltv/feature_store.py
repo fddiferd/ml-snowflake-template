@@ -12,22 +12,21 @@ from projects.pltv.constants import (
     VERSION_NUMBER, 
     TIME_STAMP_COL,
     JOIN_KEYS, 
-    SUB_TREE_ID,
     FEATURE_TABLE_NAMES
 )
 
-def get_dataset_df(session: Session) -> DataFrame:
+def get_dataset(session: Session, sub_tree_id: str | None = None) -> DataFrame:
     # init feature store service
     svc = FeatureStoreService(session, SCHEMA_NAME, TIME_STAMP_COL)
     # spine
-    spine_df = session.sql(get_sql_str(f'{SCHEMA_NAME}_TIME_SPINE', SUB_TREE_ID))
+    spine_df = session.sql(get_sql_str(f'{SCHEMA_NAME}_TIME_SPINE', sub_tree_id))
     svc.set_spine(spine_df)
     # entity
     svc.set_entity(JOIN_KEYS)
     # feature views
     for table_name in FEATURE_TABLE_NAMES:
         feature_df = session.sql(
-            get_sql_str(table_name, SUB_TREE_ID)
+            get_sql_str(table_name, sub_tree_id)
         )
         svc.set_feature_view(feature_df, VERSION_NUMBER, f'{table_name}_FV')
     # get dataset
@@ -43,5 +42,5 @@ if __name__ == "__main__":
     load_dotenv()
     
     session = get_session()
-    df = get_dataset_df(session)
+    df = get_dataset(session)
     print(df.to_pandas().head())

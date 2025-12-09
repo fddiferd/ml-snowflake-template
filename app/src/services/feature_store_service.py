@@ -52,6 +52,7 @@ class FeatureStoreService:
             desc=desc or f'{name} feature view',
         )
         registered_fv = self.fs.register_feature_view(feature_view, version=version, overwrite=True)
+        logger.info(f"Feature view {name} created")
         self.feature_views.append(registered_fv)
 
     def set_spine(self, spine_df: DataFrame) -> None:

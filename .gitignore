@@ -28,3 +28,4 @@ terraform.tfvars.json
 # End of Terraform
 src_old/*
 *.egg-info
+*.parquet
