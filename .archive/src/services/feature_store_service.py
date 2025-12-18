@@ -26,35 +26,9 @@ class FeatureStoreService:
         self.spine: DataFrame | None = None
         self.timestamp_col: str | None = timestamp_col
 
-        current_schema = self.session.get_current_schema()
-        logger.info(f"Current schema: {current_schema}")
-        if current_schema:
-            logger.info(f"Creating schema {self.name}")
-            self.session.sql(f"CREATE OR REPLACE SCHEMA {self.name}")
-
     # Public Methods
-    def set_entity(self, join_keys: list[str], name: str | None = None, desc: str | None = None, recreate: bool = False) -> None:
+    def set_entity(self, join_keys: list[str], name: str | None = None, desc: str | None = None) -> None:
         name = name or f'{self.name}_ENTITY'
-        
-        # If recreate is True, try to delete existing entity and its dependencies
-        if recreate:
-            try:
-                # List and delete all feature views first (they depend on the entity)
-                existing_fvs = self.fs.list_feature_views(entity_name=name).collect()
-                for fv_row in existing_fvs:
-                    fv_name = fv_row['NAME']
-                    logger.info(f"Deleting feature view {fv_name} that depends on entity {name}")
-                    self.fs.delete_feature_view(self.fs.get_feature_view(fv_name, fv_row['VERSION']))
-            except Exception as e:
-                logger.warning(f"Could not delete feature views for entity {name}: {e}")
-            
-            try:
-                # Delete the entity
-                logger.info(f"Deleting entity {name}")
-                self.fs.delete_entity(name)
-            except Exception as e:
-                logger.warning(f"Could not delete entity {name}: {e}")
-        
         entity = Entity(
             name=name,
             join_keys=[k.upper() for k in join_keys],
@@ -103,7 +77,7 @@ class FeatureStoreService:
         return FeatureStore(
             session=self.session,
             database=self.session.get_current_database(),
-            name=f'{self.name}',
+            name=f'{self.name}_FS',
             default_warehouse=self.session.get_current_warehouse(),
             creation_mode=CreationMode.CREATE_IF_NOT_EXIST,
         )

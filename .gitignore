@@ -29,3 +29,4 @@ terraform.tfvars.json
 src_old/*
 *.egg-info
 *.parquet
+setup/setup_key_pair.sql

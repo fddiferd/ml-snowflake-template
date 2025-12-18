@@ -1,7 +1,8 @@
-from src.connection import get_session
+from snowflake.snowpark import Session
 
-from projects.pltv.constants import SCHEMA_NAME
+from projects import Project
+from src.connection.session import get_session as get_snowflake_session
 
-session = get_session(
-    schema_name=SCHEMA_NAME,
-)
+
+def get_session() -> Session:
+    return get_snowflake_session(Project.PLTV)

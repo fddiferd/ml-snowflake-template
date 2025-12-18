@@ -16,7 +16,7 @@ def _get_private_key_pem_from_path() -> PrivateKeyTypes:
         with open(path, "rb") as key_file:
             p_key: PrivateKeyTypes = serialization.load_pem_private_key(
                 key_file.read(),
-                password=b"TCGmllayer1!"
+                password=None  # Key was generated with -nocrypt flag
             )
         return p_key
     try:

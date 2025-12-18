@@ -1,0 +1,8 @@
+-- Setup Key Pair Authentication (Required for Python Client)
+-- 1. Generate Private Key:
+--    openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out rsa_key.p8 -nocrypt
+-- 2. Generate Public Key:
+--    openssl rsa -in rsa_key.p8 -pubout -out rsa_key.pub
+-- 3. Run: ALTER USER IDENTIFIER($MY_USER_NAME) SET RSA_PUBLIC_KEY = '...paste public key here...';
+
+SET MY_USER_NAME = 'ML_LAYER_USER';
