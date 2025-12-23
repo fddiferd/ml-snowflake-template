@@ -4,6 +4,8 @@ from enum import Enum
 from typing import Protocol
 
 from projects.pltv import config as pltv_config
+#TODO: make a global partition object
+from projects.pltv.objects import Partition
 
 # Export for convenience
 __all__ = ["Project"]
@@ -26,7 +28,8 @@ class Project(Enum):
 class ProjectConfig(Protocol):
     version_number: int
     timestamp_col: str | None = None
-    partition_col: str | None = None
+    partition: Partition | None = None
+
 
 if __name__ == "__main__":
     import logging

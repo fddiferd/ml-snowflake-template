@@ -14,7 +14,7 @@ def _convert_net_billings_to_avg_net_billings(df: pd.DataFrame) -> None:
         # convert net billings to avg net billings
         df[avg_nb_col] = df[nb_col] / df[ga_col]
         # drop columns
-        df.drop(columns=[ga_col], inplace=True)
+        # df.drop(columns=[ga_col], inplace=True)
         df.drop(columns=[nb_col], inplace=True)
 
 

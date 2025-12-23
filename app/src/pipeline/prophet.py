@@ -1,3 +1,49 @@
+"""
+Prophet Pipeline Module
+
+Provides a scikit-learn compatible wrapper for Prophet (Facebook's time series library)
+with preprocessing support.
+
+⚠️  NOTE: Prophet is designed for TIME SERIES forecasting. This wrapper is best suited
+    for temporal predictions. For cross-sectional/cohort-level predictions, consider 
+    using the XGBoost pipeline instead.
+
+Usage:
+    from src.pipeline.prophet import get_pipeline, prepare_data_for_prophet
+    
+    # Define your feature columns
+    cat_cols = ['brand', 'channel', 'sku_type']
+    num_cols = ['price', 'days_active', 'cancellation_rate']
+    
+    # Create pipeline
+    model, preprocessor = get_pipeline(
+        cat_cols=cat_cols,
+        num_cols=num_cols,
+        prophet_params={'yearly_seasonality': 10}
+    )
+    
+    # Prepare and train (requires timestamp column)
+    train_prepared = prepare_data_for_prophet(
+        train_df, 
+        target_col='revenue',
+        timestamp_col='date',
+        preprocessor=preprocessor,
+        fit_preprocessor=True
+    )
+    X_train = train_prepared.drop(columns=['y'])
+    y_train = train_prepared['y']
+    model.fit(X_train, y_train)
+    
+    # Predict
+    predict_prepared = prepare_data_for_prophet(
+        test_df,
+        target_col='revenue', 
+        timestamp_col='date',
+        preprocessor=preprocessor,
+        fit_preprocessor=False
+    )
+    predictions = model.predict_with_intervals(predict_prepared.drop(columns=['y'], errors='ignore'))
+"""
 import logging
 import pandas as pd
 import numpy as np
@@ -9,9 +55,6 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.base import BaseEstimator, RegressorMixin
 
-from projects.pltv import config
-
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Suppress Prophet's verbose output
@@ -120,6 +163,7 @@ def get_preprocessor(
     cat_cols: list[str],
     num_cols: list[str],
     max_categories: int | None = None,
+    impute_strategy: str = 'constant',
 ) -> ColumnTransformer:
     """
     Create a preprocessing pipeline using ColumnTransformer.
@@ -128,6 +172,8 @@ def get_preprocessor(
         cat_cols: Categorical columns to one-hot encode
         num_cols: Numerical columns to scale
         max_categories: Maximum categories for one-hot encoding
+        impute_strategy: Strategy for numerical imputation ('median', 'mean', or 'constant')
+                        Note: Prophet traditionally uses 'constant' (0), but 'median' may be better
         
     Returns:
         Configured ColumnTransformer
@@ -138,7 +184,7 @@ def get_preprocessor(
         transformers.append((
             'num', 
             Pipeline([
-                ('imputer', SimpleImputer(strategy='constant', fill_value=0)),
+                ('imputer', SimpleImputer(strategy=impute_strategy, fill_value=0)),
                 ('scaler', StandardScaler()),
             ]), 
             num_cols
@@ -173,6 +219,7 @@ def get_pipeline(
     num_cols: list[str],
     max_categories: int | None = None,
     prophet_params: dict[str, Any] | None = None,
+    impute_strategy: str = 'constant',
 ) -> tuple[ProphetRegressor, ColumnTransformer]:
     """
     Create a Prophet pipeline with preprocessing.
@@ -182,15 +229,17 @@ def get_pipeline(
         num_cols: Numerical columns to scale
         max_categories: Maximum categories for one-hot encoding
         prophet_params: Prophet parameters (None for defaults)
+        impute_strategy: Strategy for numerical imputation (default 'constant' for Prophet compatibility)
         
     Returns:
-        Tuple of (Pipeline, preprocessor) - preprocessor returned separately for feature name access
+        Tuple of (ProphetRegressor, preprocessor)
     """
     # Create preprocessor
     preprocessor = get_preprocessor(
         cat_cols=cat_cols,
         num_cols=num_cols,
         max_categories=max_categories,
+        impute_strategy=impute_strategy,
     )
     
     # Default Prophet parameters
@@ -255,106 +304,121 @@ def prepare_data_for_prophet(
     return result_df
 
 
-def run_pipeline(
-    train_df: pd.DataFrame,
-    predict_df: pd.DataFrame,
-    max_categories: int | None = None,
-    prophet_params: dict[str, Any] | None = None,
-) -> tuple[ProphetRegressor, pd.DataFrame]:  # type: ignore
-    """
-    Main pipeline function that orchestrates the entire process.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# def run_pipeline(
+#     train_df: pd.DataFrame,
+#     predict_df: pd.DataFrame,
+#     max_categories: int | None = None,
+#     prophet_params: dict[str, Any] | None = None,
+# ) -> tuple[ProphetRegressor, pd.DataFrame]:  # type: ignore
+#     """
+#     Main pipeline function that orchestrates the entire process.
     
-    IMPORTANT: This function preserves the original predict_df structure completely.
-    All original columns are kept intact, and only prediction columns are added:
-    - pred_y: Point predictions
-    - pred_y_lower: Lower bound of prediction interval
-    - pred_y_upper: Upper bound of prediction interval
+#     IMPORTANT: This function preserves the original predict_df structure completely.
+#     All original columns are kept intact, and only prediction columns are added:
+#     - pred_y: Point predictions
+#     - pred_y_lower: Lower bound of prediction interval
+#     - pred_y_upper: Upper bound of prediction interval
     
-    Args:
-        train_df: Training DataFrame (with target column populated)
-        predict_df: Prediction DataFrame (original structure will be preserved)
-        max_categories: Maximum categories for one-hot encoding (None for no limit)
-        prophet_params: Prophet hyperparameters (None for defaults)
+#     Args:
+#         train_df: Training DataFrame (with target column populated)
+#         predict_df: Prediction DataFrame (original structure will be preserved)
+#         max_categories: Maximum categories for one-hot encoding (None for no limit)
+#         prophet_params: Prophet hyperparameters (None for defaults)
         
-    Returns:
-        Tuple of (trained_model, predictions_dataframe)
-        - trained_model: Fitted ProphetRegressor instance
-        - predictions_dataframe: Original predict_df with 3 new prediction columns added
-    """
-    logger.info("Starting PLTV Prophet pipeline...")
+#     Returns:
+#         Tuple of (trained_model, predictions_dataframe)
+#         - trained_model: Fitted ProphetRegressor instance
+#         - predictions_dataframe: Original predict_df with 3 new prediction columns added
+#     """
+#     logger.info("Starting PLTV Prophet pipeline...")
     
-    # Get the target column (longest time horizon)
-    longest_horizon = config.time_horizons[-1]  # DAYS_730
-    target_col = config.get_avg_net_billings_column(longest_horizon)
-    logger.info(f"Target column: {target_col}")
+#     # Get the target column (longest time horizon)
+#     longest_horizon = config.time_horizons[-1]  # DAYS_730
+#     target_col = config.get_avg_net_billings_column(longest_horizon)
+#     logger.info(f"Target column: {target_col}")
     
-    # Get feature columns
-    level = config.levels[0]
-    cat_cols = level.get_all_cat_cols(config.cat_cols)
-    num_cols = config.num_cols
+#     # Get feature columns
+#     level = config.levels[0]
+#     cat_cols = level.get_all_cat_cols(config.cat_cols)
+#     num_cols = config.num_cols
     
-    logger.info(f"Categorical columns: {cat_cols}")
-    logger.info(f"Numerical columns: {num_cols}")
+#     logger.info(f"Categorical columns: {cat_cols}")
+#     logger.info(f"Numerical columns: {num_cols}")
     
-    # Create pipeline
-    model, preprocessor = get_pipeline(
-        cat_cols=cat_cols,
-        num_cols=num_cols,
-        max_categories=max_categories,
-        prophet_params=prophet_params,
-    )
+#     # Create pipeline
+#     model, preprocessor = get_pipeline(
+#         cat_cols=cat_cols,
+#         num_cols=num_cols,
+#         max_categories=max_categories,
+#         prophet_params=prophet_params,
+#     )
     
-    # Prepare training data
-    logger.info("Preparing training data...")
-    train_prepared = prepare_data_for_prophet(
-        df=train_df,
-        target_col=target_col,
-        timestamp_col=config.timestamp_col,
-        preprocessor=preprocessor,
-        fit_preprocessor=True,
-    )
+#     # Prepare training data
+#     logger.info("Preparing training data...")
+#     train_prepared = prepare_data_for_prophet(
+#         df=train_df,
+#         target_col=target_col,
+#         timestamp_col=config.timestamp_col,
+#         preprocessor=preprocessor,
+#         fit_preprocessor=True,
+#     )
     
-    # Extract X and y for training
-    X_train = train_prepared.drop(columns=['y'])
-    y_train: pd.Series = train_prepared['y']  # type: ignore
+#     # Extract X and y for training
+#     X_train = train_prepared.drop(columns=['y'])
+#     y_train: pd.Series = train_prepared['y']  # type: ignore
     
-    # Fit the model
-    logger.info(f"Training on {len(X_train)} samples...")
-    model.fit(X_train, y_train)
+#     # Fit the model
+#     logger.info(f"Training on {len(X_train)} samples...")
+#     model.fit(X_train, y_train)
     
-    # Prepare prediction data
-    logger.info("Preparing prediction data...")
-    predict_prepared = prepare_data_for_prophet(
-        df=predict_df,
-        target_col=target_col,
-        timestamp_col=config.timestamp_col,
-        preprocessor=preprocessor,
-        fit_preprocessor=False,
-    )
+#     # Prepare prediction data
+#     logger.info("Preparing prediction data...")
+#     predict_prepared = prepare_data_for_prophet(
+#         df=predict_df,
+#         target_col=target_col,
+#         timestamp_col=config.timestamp_col,
+#         preprocessor=preprocessor,
+#         fit_preprocessor=False,
+#     )
     
-    # Make predictions with intervals
-    X_predict = predict_prepared.drop(columns=['y'], errors='ignore')
-    predictions = model.predict_with_intervals(X_predict)  # type: ignore
+#     # Make predictions with intervals
+#     X_predict = predict_prepared.drop(columns=['y'], errors='ignore')
+#     predictions = model.predict_with_intervals(X_predict)  # type: ignore
     
-    # CRITICAL: Preserve original dataframe completely
-    # Strategy: Copy original predict_df, then add only prediction columns
-    # This ensures all original columns, dtypes, and structure are maintained
-    logger.info(f"Preserving original dataframe with {len(predict_df.columns)} columns")
+#     # CRITICAL: Preserve original dataframe completely
+#     # Strategy: Copy original predict_df, then add only prediction columns
+#     # This ensures all original columns, dtypes, and structure are maintained
+#     logger.info(f"Preserving original dataframe with {len(predict_df.columns)} columns")
     
-    result_df = predict_df.reset_index(drop=True).copy()
-    predictions_aligned = predictions.reset_index(drop=True)
+#     result_df = predict_df.reset_index(drop=True).copy()
+#     predictions_aligned = predictions.reset_index(drop=True)
     
-    # Add only the prediction columns (no modifications to existing columns)
-    result_df['pred_y'] = predictions_aligned['yhat'].values
-    result_df['pred_y_lower'] = predictions_aligned['yhat_lower'].values
-    result_df['pred_y_upper'] = predictions_aligned['yhat_upper'].values
+#     # Add only the prediction columns (no modifications to existing columns)
+#     result_df['pred_y'] = predictions_aligned['yhat'].values
+#     result_df['pred_y_lower'] = predictions_aligned['yhat_lower'].values
+#     result_df['pred_y_upper'] = predictions_aligned['yhat_upper'].values
     
-    logger.info(f"Result dataframe now has {len(result_df.columns)} columns (added 3 prediction columns)")
-    logger.info("Pipeline complete!")
-    logger.info(f"Prediction statistics:")
-    logger.info(f"  Mean predicted value: {result_df['pred_y'].mean():.2f}")
-    logger.info(f"  Median predicted value: {result_df['pred_y'].median():.2f}")
-    logger.info(f"  Min predicted value: {result_df['pred_y'].min():.2f}")
-    logger.info(f"  Max predicted value: {result_df['pred_y'].max():.2f}")
+#     logger.info(f"Result dataframe now has {len(result_df.columns)} columns (added 3 prediction columns)")
+#     logger.info("Pipeline complete!")
+#     logger.info(f"Prediction statistics:")
+#     logger.info(f"  Mean predicted value: {result_df['pred_y'].mean():.2f}")
+#     logger.info(f"  Median predicted value: {result_df['pred_y'].median():.2f}")
+#     logger.info(f"  Min predicted value: {result_df['pred_y'].min():.2f}")
+#     logger.info(f"  Max predicted value: {result_df['pred_y'].max():.2f}")
     
-    return model, result_df
+#     return model, result_df

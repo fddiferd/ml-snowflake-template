@@ -3,7 +3,7 @@ import pandas as pd
 
 from projects.pltv import config
 # from projects.pltv.session import get_session
-# from projects.pltv.dataset import get_training_dataset
+# from projects.pltv.dataset import get_dataset
 from projects.pltv.feature_engineering import clean_df
 from projects.pltv.pipeline import run_pipeline
 
@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # session = get_session()
-# dataset = get_training_dataset(session, Level(group_bys=["brand", "sku_type", "channel"]))
+# dataset = get_dataset(session, Level(group_bys=["brand", "sku_type", "channel"]))
 # df = dataset.to_pandas()
 
 df = pd.read_parquet("output_dataset.parquet")

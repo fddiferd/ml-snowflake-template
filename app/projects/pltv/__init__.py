@@ -1,6 +1,6 @@
 from enum import Enum
 
-from projects.pltv.objects import Config, Level
+from projects.pltv.objects import Config, Level, Partition
 
 # MARK: - Time Horizons
 class TimeHorizon(Enum):
@@ -26,7 +26,10 @@ config = Config(
     version_number=1,
     min_cohort_size=250,
     timestamp_col="start_date_month",
-    partition_col="plan__is_promo",
+    partition=Partition(
+        name="plan__is_promo",
+        values=[True, False]
+    ),
     levels=[
         Level(
             group_bys=[
@@ -37,14 +40,23 @@ config = Config(
         )
     ],
     time_horizons=[t for t in TimeHorizon],
+    # -- Common Model Step Features --
     cat_cols=[],
     num_cols=[
+        # plan features
         'avg_promo_days',
         'avg_promo_price',
         'avg_recurring_days',
         'avg_recurring_price',
         'promo_to_recurring_days_ratio',
         'promo_to_recurring_price_ratio',
+        # Cancelation features
+        'gross_adds_canceled_day_one_rate',
+        'gross_adds_canceled_day_three_rate',
+        'gross_adds_canceled_day_seven_rate',
+        # Retention features
+        'promo_activation_rate',
+        'first_rebill_rate',
     ],
     boolean_cols=[],
     get_gross_adds_created_over_days_ago_column=get_gross_adds_created_over_days_ago_column,

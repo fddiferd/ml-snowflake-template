@@ -36,8 +36,21 @@ class Level(BaseModel):
 
 Levels: TypeAlias = list[Level]
 
-class ModelStep(Enum):
-    promo_activation_rate = 'promo_activation_rate'
+
+class ModelStep(BaseModel):
+    predict_col: str
+    
+
+
+class Partition(BaseModel):
+    name: str
+    values: list[Any]
+
+    @model_validator(mode='before')
+    def capitalize_fields(cls, values):
+        if 'name' in values and values['name']:
+            values['name'] = values['name'].upper()
+        return values
 
 
 class Config(BaseModel):
@@ -46,7 +59,7 @@ class Config(BaseModel):
     version_number: int
     min_cohort_size: int
     timestamp_col: str | None
-    partition_col: str | None
+    partition: Partition | None
     levels: Levels
     time_horizons: list[Enum]
 
@@ -63,8 +76,6 @@ class Config(BaseModel):
     def capitalize_fields(cls, values):
         if 'timestamp_col' in values and values['timestamp_col']:
             values['timestamp_col'] = values['timestamp_col'].upper()
-        if 'partition_col' in values and values['partition_col']:
-            values['partition_col'] = values['partition_col'].upper()
         if 'cat_cols' in values:
             values['cat_cols'] = [col.upper() for col in values['cat_cols']]
         if 'num_cols' in values:

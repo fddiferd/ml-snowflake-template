@@ -12,11 +12,11 @@ with retention_metrics as (
         gross_add__traffic_source as traffic_source,
         gross_add__campaign as campaign,
         gross_add__plan__is_promo as plan__is_promo,
-        survived_promo_activations,
+        survived_promo_activations_excl_retries,
         eligible_promo_activations,
-        survived_first_rebills,
+        survived_first_rebills_excl_retries,
         eligible_first_rebills,
-    from bi_layer_db.dbt_donato.exp_pltv_retention_metrics
+    from bi_layer_db.prod.exp_pltv_retention_metrics
 ) 
 
 select
@@ -28,11 +28,11 @@ select
     sum(eligible_promo_activations) as eligible_promo_activations,
     sum(eligible_first_rebills) as eligible_first_rebills,
     div0(
-        sum(survived_promo_activations), 
+        sum(survived_promo_activations_excl_retries), 
         sum(eligible_promo_activations)
     )  as promo_activation_rate,
     div0(
-        sum(survived_first_rebills), 
+        sum(survived_first_rebills_excl_retries), 
         sum(eligible_first_rebills)
     ) as first_rebill_rate,   
 from retention_metrics
@@ -55,7 +55,7 @@ with billing_metrics as (
         net_billings_180_days_since_gross_add,
         net_billings_365_days_since_gross_add,
         net_billings_730_days_since_gross_add,
-    from bi_layer_db.dbt_donato.exp_pltv_billing_metrics
+    from bi_layer_db.prod.exp_pltv_billing_metrics
 )
 
 select
