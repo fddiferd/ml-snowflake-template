@@ -94,10 +94,15 @@ class Config(BaseModel):
 class ModelStepResult(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    training_rows: int
+    test_rows: int
     partition_item: PartitionItem
     step: ModelStep
     eval_result: EvaluationResult
     feature_importances: DataFrame
+    cat_cols: list[str]
+    num_cols: list[str]
+    boolean_cols: list[str]
     model: XGBoostRegressorWrapper
 
 ModelStepResults: TypeAlias = list[ModelStepResult]

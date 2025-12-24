@@ -18,7 +18,12 @@ class Partition(Enum):
         match self:
             case Partition.PLAN__IS_PROMO:
                 if value == True:
-                    cols = ['avg_promo_price', 'promo_to_recurring_days_ratio', 'promo_to_recurring_price_ratio']
+                    cols = [
+                        'avg_promo_days',
+                        'avg_promo_price', 
+                        'promo_to_recurring_days_ratio', 
+                        'promo_to_recurring_price_ratio'
+                    ]
                 else:
                     cols = []
                 return [col.upper() for col in cols]

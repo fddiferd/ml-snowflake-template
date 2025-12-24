@@ -50,7 +50,6 @@ config = Config(
     # -- Common Model Step Features --
     cat_cols=[],
     num_cols=[
-        'avg_promo_days',
         'avg_recurring_days',
         'avg_recurring_price',
         'gross_adds_canceled_day_one_rate',

@@ -79,12 +79,16 @@ class ModelService:
         step_logger.info(f"Training on {len(train_df)} rows and testing on {len(test_df)} rows")
 
         # run pipeline
+        cat_cols = config.get_cat_cols(self.level)
+        num_cols = config.get_num_cols(partition_item, step)
+        boolean_cols = config.boolean_cols
         result_df, trained_model = run_pipeline(
             cast(DataFrame, train_df),
             cast(DataFrame, test_df),
             target_col=step.target_col,
-            cat_cols=config.get_cat_cols(self.level),
-            num_cols=config.get_num_cols(partition_item, step),
+            cat_cols=cat_cols,
+            num_cols=num_cols,
+            boolean_cols=boolean_cols,
             pred_col=step.pred_col,
             pred_lower_col=step.pred_lower_col,
             pred_upper_col=step.pred_upper_col,
@@ -102,10 +106,15 @@ class ModelService:
         step_logger.info(f"Feature importances: {feature_importances.to_dict()}")
 
         return ModelStepResult(
+            training_rows=len(train_df),
+            test_rows=len(test_df),
             partition_item=partition_item,
             step=step,
             eval_result=eval_result,
             feature_importances=feature_importances,
+            cat_cols=cat_cols,
+            num_cols=num_cols,
+            boolean_cols=boolean_cols,
             model=trained_model
         )
 
@@ -128,8 +137,12 @@ class ModelService:
             pretty_features = pformat(top_10_features, indent=4, compact=False, sort_dicts=False)
             
             result_logger.info(
-                f"\nResults for Partition {result.partition_item.partition.name} = {result.partition_item.value} "
-                f"for Model Step {result.step.name}:\n"
-                f"- model eval: {pretty_eval}\n"
-                f"- feature importances (top 10): {pretty_features}"
+                f"\nResults for Partition {result.partition_item.partition.name} = {result.partition_item.value} for Model Step {result.step.name}:\n"
+                f"  - training rows: {result.training_rows}\n"
+                f"  - test rows: {result.test_rows}\n"
+                f"  - model eval: {pretty_eval}\n"
+                f"  - feature importances (top 10): {pretty_features}\n"
+                f"  - cat cols: {result.cat_cols}\n"
+                f"  - num cols: {result.num_cols}\n"
+                f"  - boolean cols: {result.boolean_cols}\n"
             )

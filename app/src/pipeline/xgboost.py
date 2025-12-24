@@ -37,6 +37,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import OrdinalEncoder
 from sklearn.base import BaseEstimator, RegressorMixin
 
 logger = logging.getLogger(__name__)
@@ -186,6 +187,7 @@ class XGBoostRegressorWrapper(BaseEstimator, RegressorMixin):
 def get_preprocessor(
     cat_cols: list[str],
     num_cols: list[str],
+    boolean_cols: list[str],
     max_categories: int | None = None,
     impute_strategy: str = 'median',
 ) -> ColumnTransformer:
@@ -227,6 +229,15 @@ def get_preprocessor(
             ]), 
             cat_cols
         ))
+    if boolean_cols:
+        transformers.append((
+            'bool',
+            Pipeline([
+                ('encoder', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)),
+                ('imputer', SimpleImputer(strategy='constant', fill_value=-1)),
+            ]),
+            boolean_cols
+        ))
     
     preprocessor = ColumnTransformer(
         transformers=transformers,
@@ -241,6 +252,7 @@ def get_preprocessor(
 def get_pipeline(
     cat_cols: list[str],
     num_cols: list[str],
+    boolean_cols: list[str],
     max_categories: int | None = None,
     xgboost_params: dict[str, Any] | None = None,
     impute_strategy: str = 'median',
@@ -251,6 +263,7 @@ def get_pipeline(
     Args:
         cat_cols: Categorical columns to one-hot encode
         num_cols: Numerical columns to scale
+        boolean_cols: Boolean columns to convert to integers
         max_categories: Maximum categories for one-hot encoding
         xgboost_params: XGBoost parameters (None for defaults)
         impute_strategy: Strategy for numerical imputation
@@ -262,6 +275,7 @@ def get_pipeline(
     preprocessor = get_preprocessor(
         cat_cols=cat_cols,
         num_cols=num_cols,
+        boolean_cols=boolean_cols,
         max_categories=max_categories,
         impute_strategy=impute_strategy,
     )
@@ -319,6 +333,7 @@ def run_pipeline(
     target_col: str,
     cat_cols: list[str],
     num_cols: list[str],
+    boolean_cols: list[str],
     max_categories: int | None = None,
     xgboost_params: dict[str, Any] | None = None,
     impute_strategy: str = 'median',
@@ -333,6 +348,7 @@ def run_pipeline(
     model, preprocessor = get_pipeline(
         cat_cols,
         num_cols,
+        boolean_cols,
         max_categories,
         xgboost_params,
         impute_strategy,
