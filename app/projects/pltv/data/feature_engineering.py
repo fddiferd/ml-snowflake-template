@@ -3,7 +3,9 @@ import logging
 
 from projects.pltv.core.config import config
 
+
 logger = logging.getLogger(__name__)
+
 
 def _timestamp_col_to_datetime(df: pd.DataFrame) -> None:
     logger.info(f"Converting {config.timestamp_col} to datetime")
@@ -26,3 +28,5 @@ def _convert_net_billings_to_avg_net_billings(df: pd.DataFrame) -> None:
 def clean_df(df: pd.DataFrame) -> None:
     _timestamp_col_to_datetime(df)
     _convert_net_billings_to_avg_net_billings(df)
+    # log columns
+    logger.info(f"Cleaned columns: {df.columns.tolist()}")

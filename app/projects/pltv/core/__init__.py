@@ -6,15 +6,14 @@ Configuration, types, and enums for the PLTV model.
 
 Modules:
     enums:       TimeHorizon (30-730 days), ModelStep (prediction targets)
-    base_models: Level, Config, Partition, FeatureViewConfig, ModelStepResult
+    base_models: Level, Config, PartitionItem, FeatureViewConfig, ModelStepResult
     config:      Project config instance and feature view configurations
 """
 
-from projects.pltv.core.enums import TimeHorizon, ModelStep, TimeHorizons, ModelSteps
+from projects.pltv.core.enums import TimeHorizon, ModelStep, TimeHorizons, ModelSteps, Partition
 from projects.pltv.core.base_models import (
     Level,
     Config,
-    Partition,
     PartitionItem,
     FeatureViewConfig,
     FeatureViewConfigs,
@@ -28,9 +27,9 @@ __all__ = [
     "ModelStep",
     "TimeHorizons",
     "ModelSteps",
+    "Partition",
     "Level",
     "Config",
-    "Partition",
     "PartitionItem",
     "FeatureViewConfig",
     "FeatureViewConfigs",

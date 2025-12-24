@@ -29,7 +29,7 @@ def get_dataset(session: Session, level: Level) -> DataFrame:
     svc.set_spine(spine_df)
     # entity
     svc.set_entity(
-        join_keys=level.get_join_keys(config.timestamp_col, config.partition.name if config.partition else None), 
+        join_keys=config.get_join_keys(level), 
         name=f'{level.name}_ENTITY',
         recreate=True
     )

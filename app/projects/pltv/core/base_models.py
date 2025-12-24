@@ -2,7 +2,7 @@ from pydantic import BaseModel, model_validator, ConfigDict
 from typing import Callable, Any, TypeAlias
 from pandas import DataFrame
 
-from projects.pltv.core.enums import ModelStep, ModelSteps, TimeHorizons
+from projects.pltv.core.enums import ModelStep, ModelSteps, TimeHorizons, Partitions, Partition
 from src.base_models.evaluation import EvaluationResult
 from src.pipeline.xgboost import XGBoostRegressorWrapper
 
@@ -36,43 +36,13 @@ class Level(BaseModel):
         # Ensure there is a comma after every item, including the last one
         return ", ".join(self.group_bys) + ("," if self.group_bys else "")
 
-    def get_join_keys(self, timestamp_col: str | None = None, partition_col: str | None = None) -> list[str]:
-        keys = []
-        if timestamp_col:
-            keys.append(timestamp_col)
-        if partition_col:
-            keys.append(partition_col)
-        keys.extend(self.group_bys)
-        return keys
-
-    def get_all_cat_cols(self, cat_cols: list[str]) -> list[str]:
-        return [col.upper() for col in cat_cols] + [col.upper() for col in self.group_bys]
-
 Levels: TypeAlias = list[Level]
 
 
-# MARK: - Partitions
+# Mark: - Partition Item
 class PartitionItem(BaseModel):
+    partition: Partition
     value: Any
-    additional_regressor_cols: list[str]
-
-    @model_validator(mode='before')
-    def capitalize_fields(cls, values):
-        if 'additional_regressor_cols' in values:
-            values['additional_regressor_cols'] = [col.upper() for col in values['additional_regressor_cols']]
-        return values
-        
-PartitionItems: TypeAlias = list[PartitionItem]
-
-class Partition(BaseModel):
-    name: str
-    items: PartitionItems
-
-    @model_validator(mode='before')
-    def capitalize_fields(cls, values):
-        if 'name' in values and values['name']:
-            values['name'] = values['name'].upper()
-        return values
 
 
 # MARK: - Config
@@ -82,7 +52,7 @@ class Config(BaseModel):
     version_number: int
     min_cohort_size: int
     timestamp_col: str
-    partition: Partition
+    partitions: Partitions
     levels: Levels
     time_horizons: TimeHorizons
     model_steps: ModelSteps
@@ -109,16 +79,23 @@ class Config(BaseModel):
         return values
 
     def get_cat_cols(self, level: Level) -> list[str]:
+        """Return cat cols for the level as well as the global group bys"""
         return self.cat_cols + [col.upper() for col in level.group_bys]
 
-    def get_num_cols(self, step: ModelStep) -> list[str]:
-        return self.num_cols + step.additional_regressor_cols
+    def get_num_cols(self, partition_item: PartitionItem, step: ModelStep) -> list[str]:
+        """Return additional regressors based on the step and partition item as well as the global num cols"""
+        return self.num_cols + step.get_additional_regressor_cols(partition_item.partition, partition_item.value)
+
+    def get_join_keys(self, level: Level) -> list[str]:
+        return [self.timestamp_col] + [partition.name.upper() for partition in self.partitions] + [col.upper() for col in level.group_bys]
 
 
 # MARK: - ModelStepResults
 class ModelStepResult(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    
+
+    partition_item: PartitionItem
+    step: ModelStep
     eval_result: EvaluationResult
     feature_importances: DataFrame
     model: XGBoostRegressorWrapper
