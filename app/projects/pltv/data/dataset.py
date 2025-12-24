@@ -1,17 +1,20 @@
 import pandas as pd
+import logging
 from snowflake.snowpark import Session
 from snowflake.snowpark.dataframe import DataFrame
 
-from projects import Project
-from projects.pltv import config
-from projects.pltv.objects import Level
-from projects.pltv.queries.spine import QUERY as SPINE_QUERY
-from projects.pltv.queries.feature_views import feature_view_configs
-
 from src.services.feature_store_service import FeatureStoreService
+
+from projects import Project
+from projects.pltv.core.config import config, fv_configs
+from projects.pltv.core.base_models import Level
+from projects.pltv.data.queries.spine import QUERY as SPINE_QUERY
 
 
 CACHE_FILE_NAME = "output_dataset.parquet"
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_dataset(session: Session, level: Level) -> DataFrame:
@@ -31,7 +34,7 @@ def get_dataset(session: Session, level: Level) -> DataFrame:
         recreate=True
     )
     # feature views
-    for feature_view_config in feature_view_configs:
+    for feature_view_config in fv_configs:
         logger.info(f'Setting feature view {feature_view_config.name} for level {level.name}')
         feature_df = session.sql(
             feature_view_config.query.format(group_bys=level.sql_fields)
@@ -63,7 +66,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
-    from projects.pltv.session import get_session
+    from projects.pltv import get_session
 
     session = get_session()
     dataset = get_dataset(session, Level(group_bys=["brand", "sku_type", "channel"]))

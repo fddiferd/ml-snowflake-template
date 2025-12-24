@@ -2,6 +2,8 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import numpy as np
 import pandas as pd
 
+from src.base_models.evaluation import EvaluationResult
+
 
 def evaluate_model(y_true: pd.Series, y_pred: pd.Series):
     """Calculate the metrics for actual vs predicted"""
@@ -19,9 +21,9 @@ def evaluate_model(y_true: pd.Series, y_pred: pd.Series):
     else:
         mape = np.nan  # All true values are zero
     
-    return {
-        'rmse': rmse,
-        'mae': mae,
-        'mape': mape,
-        'r2': r2
-    }
+    return EvaluationResult(
+        rmse=rmse,
+        mae=mae,
+        mape=float(mape),
+        r2=float(r2)
+    )

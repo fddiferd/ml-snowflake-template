@@ -1,17 +1,10 @@
-from __future__ import annotations
-
 from pydantic import BaseModel, model_validator, ConfigDict
-from typing import TYPE_CHECKING, Callable, Any
+from typing import Callable, Any, TypeAlias
+from pandas import DataFrame
 
-if TYPE_CHECKING:
-    from typing import TypeAlias
-    from enum import Enum
-    
-    # Import types only for type checking, not at runtime
-    TimeHorizon: TypeAlias = Enum
-    TimeHorizons: TypeAlias = list[Enum]
-    ModelStep: TypeAlias = Enum
-    ModelSteps: TypeAlias = list[Enum]
+from projects.pltv.core.enums import ModelStep, ModelSteps, TimeHorizons
+from src.base_models.evaluation import EvaluationResult
+from src.pipeline.xgboost import XGBoostRegressorWrapper
 
 
 # MARK: - FV Config
@@ -91,8 +84,8 @@ class Config(BaseModel):
     timestamp_col: str
     partition: Partition
     levels: Levels
-    time_horizons: list[Any]  # TimeHorizons at type-check time
-    model_steps: list[Any]  # ModelSteps at type-check time
+    time_horizons: TimeHorizons
+    model_steps: ModelSteps
 
     cat_cols: list[str]
     num_cols: list[str]
@@ -114,3 +107,20 @@ class Config(BaseModel):
         if 'boolean_cols' in values:
             values['boolean_cols'] = [col.upper() for col in values['boolean_cols']]
         return values
+
+    def get_cat_cols(self, level: Level) -> list[str]:
+        return self.cat_cols + [col.upper() for col in level.group_bys]
+
+    def get_num_cols(self, step: ModelStep) -> list[str]:
+        return self.num_cols + step.additional_regressor_cols
+
+
+# MARK: - ModelStepResults
+class ModelStepResult(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    
+    eval_result: EvaluationResult
+    feature_importances: DataFrame
+    model: XGBoostRegressorWrapper
+
+ModelStepResults: TypeAlias = list[ModelStepResult]

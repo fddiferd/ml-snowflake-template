@@ -322,6 +322,9 @@ def run_pipeline(
     max_categories: int | None = None,
     xgboost_params: dict[str, Any] | None = None,
     impute_strategy: str = 'median',
+    pred_col: str = 'yhat',
+    pred_lower_col: str = 'yhat_lower',
+    pred_upper_col: str = 'yhat_upper',
 ) -> tuple[pd.DataFrame, XGBoostRegressorWrapper]:
     """
     Run the XGBoost pipeline.
@@ -368,9 +371,9 @@ def run_pipeline(
     predictions_aligned = predictions.reset_index(drop=True)
 
     # Add only the prediction columns (no modifications to existing columns)
-    result_df[f'PRED_{target_col}'] = predictions_aligned['yhat'].values
-    result_df[f'PRED_{target_col}_LOWER'] = predictions_aligned['yhat_lower'].values
-    result_df[f'PRED_{target_col}_UPPER'] = predictions_aligned['yhat_upper'].values
+    result_df[pred_col] = predictions_aligned['yhat'].values
+    result_df[pred_lower_col] = predictions_aligned['yhat_lower'].values
+    result_df[pred_upper_col] = predictions_aligned['yhat_upper'].values
 
     logger.info(f"Result dataframe now has {len(result_df.columns)} columns (added 3 prediction columns)")
     return result_df, model

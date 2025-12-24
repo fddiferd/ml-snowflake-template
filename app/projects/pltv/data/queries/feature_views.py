@@ -1,4 +1,3 @@
-from projects.pltv.objects import FeatureViewConfig, FeatureViewConfigs
 
 
 RETENTION_METRICS_QUERY = """
@@ -73,8 +72,3 @@ select
 from billing_metrics
 group by all
 """
-
-feature_view_configs: FeatureViewConfigs = [
-    FeatureViewConfig(name="RETENTION_METRICS", query=RETENTION_METRICS_QUERY),
-    FeatureViewConfig(name="BILLING_METRICS", query=BILLING_METRICS_QUERY),
-]

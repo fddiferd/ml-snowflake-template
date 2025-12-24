@@ -1,23 +1,29 @@
-from projects.pltv.objects import Level
-
+from projects.pltv import (
+    Level,
+    get_session,
+    get_df,
+    get_df_from_cache,
+    clean_df,
+    ModelService,
+)
 
 def main(level: Level, from_cache: bool = False, to_cache: bool = False):
 
-    from projects.pltv.session import get_session
+    # get snowflake session
     session = get_session()
 
+    # get dataset
     if from_cache:
-        from projects.pltv.dataset import get_df_from_cache
         df = get_df_from_cache()
     else:
-        from projects.pltv.dataset import get_df
         df = get_df(session, level, save_to_cache=to_cache)
 
-    from projects.pltv.feature_engineering import clean_df
+    # clean dataset
     clean_df(df)
 
-    from projects.pltv.model import run
-    run(level, df, test=True)
+    # run model service
+    model_service = ModelService(level, df)
+    model_service.run()
         
 
 

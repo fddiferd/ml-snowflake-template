@@ -1,6 +1,7 @@
 import pandas as pd
 import logging
-from projects.pltv import config
+
+from projects.pltv.core.config import config
 
 logger = logging.getLogger(__name__)
 

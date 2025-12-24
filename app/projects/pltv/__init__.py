@@ -1,133 +1,116 @@
-from enum import Enum
-from typing import TypeAlias
+"""
+PLTV (Predicted Lifetime Value) Package
+========================================
 
-from projects.pltv.objects import Config, Level, Partition, PartitionItem
+Predicts average net billings across time horizons (30-730 days) using XGBoost.
+Data is partitioned by promo/non-promo plans and grouped by brand/sku/channel.
 
-# MARK: - Time Horizons
-class TimeHorizon(Enum):
-    DAYS_30 = "30"
-    DAYS_60 = "60"
-    DAYS_90 = "90"
-    DAYS_180 = "180"
-    DAYS_365 = "365"
-    DAYS_730 = "730"
+Usage:
+    from projects.pltv import Level, config, get_session, get_df, clean_df, ModelService
+    
+    session = get_session()
+    df = get_df(session, Level(group_bys=["brand", "sku_type", "channel"]))
+    clean_df(df)
+    ModelService(level, df).run()
 
-TimeHorizons: TypeAlias = list[TimeHorizon]
+Exports:
+    Session:    get_session
+    Config:     config, fv_configs
+    Types:      Level, Config, Partition, PartitionItem, FeatureViewConfig
+    Enums:      TimeHorizon, ModelStep
+    Data:       get_df, get_df_from_cache, clean_df
+    Model:      ModelService
+"""
 
+from typing import TYPE_CHECKING
+from snowflake.snowpark import Session
 
-# MARK: - Model Steps
-class ModelStep(Enum):
-    AVG_NET_BILLINGS_30_DAYS = "avg_net_billings_30_days"
-    AVG_NET_BILLINGS_60_DAYS = "avg_net_billings_60_days"
-    AVG_NET_BILLINGS_90_DAYS = "avg_net_billings_90_days"
-    AVG_NET_BILLINGS_180_DAYS = "avg_net_billings_180_days"
-    AVG_NET_BILLINGS_365_DAYS = "avg_net_billings_365_days"
-    AVG_NET_BILLINGS_730_DAYS = "avg_net_billings_730_days"
+# Type hints for lazy imports (enables IDE autocomplete & silences linter)
+if TYPE_CHECKING:
+    from projects.pltv.data.dataset import get_df as get_df
+    from projects.pltv.data.dataset import get_df_from_cache as get_df_from_cache
+    from projects.pltv.data.feature_engineering import clean_df as clean_df
+    from projects.pltv.model.model_service import ModelService as ModelService
 
-    @property
-    def target_col(self) -> str:
-        return self.value.upper()
+from projects import Project
+from src.connection.session import get_session as get_snowflake_session
 
-    @property
-    def previous_step_min_cohort_cols(self) -> list[str]:
-        eligible_first_rebill_col = 'eligible_first_rebills'
-        match self:
-            case ModelStep.AVG_NET_BILLINGS_30_DAYS:
-                days_ago_col = 'gross_adds_created_over_30_days_ago'
-            case ModelStep.AVG_NET_BILLINGS_60_DAYS:
-                days_ago_col = 'gross_adds_created_over_60_days_ago'
-            case ModelStep.AVG_NET_BILLINGS_90_DAYS:
-                days_ago_col = 'gross_adds_created_over_90_days_ago'
-            case ModelStep.AVG_NET_BILLINGS_180_DAYS:
-                days_ago_col = 'gross_adds_created_over_180_days_ago'
-            case ModelStep.AVG_NET_BILLINGS_365_DAYS:
-                days_ago_col = 'gross_adds_created_over_365_days_ago'
-            case ModelStep.AVG_NET_BILLINGS_730_DAYS:
-                days_ago_col = 'gross_adds_created_over_730_days_ago'
-
-        return [x.upper() for x in [eligible_first_rebill_col, days_ago_col]]
-
-    @property
-    def additional_regressor_cols(self) -> list[str]:
-        match self:
-            case ModelStep.AVG_NET_BILLINGS_30_DAYS:
-                return []
-            case ModelStep.AVG_NET_BILLINGS_60_DAYS:
-                additional_regressor_cols = ['avg_net_billings_30_days']
-            case ModelStep.AVG_NET_BILLINGS_90_DAYS:
-                additional_regressor_cols = ['avg_net_billings_60_days']
-            case ModelStep.AVG_NET_BILLINGS_180_DAYS:
-                additional_regressor_cols = ['avg_net_billings_90_days']
-            case ModelStep.AVG_NET_BILLINGS_365_DAYS:
-                additional_regressor_cols = ['avg_net_billings_180_days']
-            case ModelStep.AVG_NET_BILLINGS_730_DAYS:
-                additional_regressor_cols = ['avg_net_billings_365_days']
-
-        return [x.upper() for x in additional_regressor_cols]
-
-ModelSteps: TypeAlias = list[ModelStep]
-
-
-# MARK: - Column Utils
-def get_gross_adds_created_over_days_ago_column(time_horizon: TimeHorizon) -> str:
-    return f"gross_adds_created_over_{time_horizon.value}_days_ago".upper()
-
-def get_net_billings_days_column(time_horizon: TimeHorizon) -> str:
-    return f"net_billings_{time_horizon.value}_days".upper()
-
-def get_avg_net_billings_column(time_horizon: TimeHorizon) -> str:
-    return f"avg_net_billings_{time_horizon.value}_days".upper()
-
-
-# MARK: - Config
-
-config = Config(
-    version_number=1,
-    min_cohort_size=250,
-    timestamp_col="start_date_month",
-    partition=Partition(
-        name="plan__is_promo",
-        items=[
-            PartitionItem(
-                value=True, additional_regressor_cols=[
-                    'avg_promo_price',
-                    'promo_to_recurring_days_ratio',
-                    'promo_to_recurring_price_ratio',
-                    # 'promo_activation_rate',
-                ]
-                ),
-            PartitionItem(
-                value=False, additional_regressor_cols=[]
-            ),
-        ]
-    ),
-    levels=[
-        Level(
-            group_bys=[
-                'brand',
-                'sku_type',
-                'channel',
-            ]
-        )
-    ],
-    time_horizons=[t for t in TimeHorizon],
-    model_steps=[m for m in ModelStep],
-    # -- Common Model Step Features --
-    cat_cols=[],
-    num_cols=[
-        # plan features
-        'avg_promo_days',
-        'avg_recurring_days',
-        'avg_recurring_price',
-        # Cancelation features
-        'gross_adds_canceled_day_one_rate',
-        'gross_adds_canceled_day_three_rate',
-        'gross_adds_canceled_day_seven_rate',
-        # Retention features
-        # 'first_rebill_rate',
-    ],
-    boolean_cols=[],
-    get_gross_adds_created_over_days_ago_column=get_gross_adds_created_over_days_ago_column,
-    get_net_billings_days_column=get_net_billings_days_column,
-    get_avg_net_billings_column=get_avg_net_billings_column,
+# Core components (eager imports - no circular dependency issues)
+from projects.pltv.core.config import config, fv_configs
+from projects.pltv.core.enums import (
+    TimeHorizon, 
+    ModelStep, 
+    ModelSteps, 
+    TimeHorizons
 )
+from projects.pltv.core.base_models import (
+    Config, 
+    Level, 
+    Partition, 
+    PartitionItem, 
+    FeatureViewConfig, 
+    FeatureViewConfigs,
+    ModelStepResult,
+    ModelStepResults
+)
+
+
+def get_session() -> Session:
+    """Get a Snowflake session configured for the PLTV project."""
+    return get_snowflake_session(Project.PLTV)
+
+
+# ============================================================================
+# Lazy imports for data functions
+# ============================================================================
+# These are loaded on first access to avoid circular imports.
+# The pattern: core/config imports queries, but data modules import config.
+# Lazy loading breaks this cycle.
+
+_lazy_imports = {
+    # Data functions
+    "get_df": ("projects.pltv.data.dataset", "get_df"),
+    "get_df_from_cache": ("projects.pltv.data.dataset", "get_df_from_cache"),
+    "clean_df": ("projects.pltv.data.feature_engineering", "clean_df"),
+    # Model service
+    "ModelService": ("projects.pltv.model.model_service", "ModelService"),
+}
+
+
+def __getattr__(name: str):
+    """Lazy import handler for data and model components."""
+    if name in _lazy_imports:
+        module_path, attr_name = _lazy_imports[name]
+        import importlib
+        module = importlib.import_module(module_path)
+        return getattr(module, attr_name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [
+    # Session
+    "get_session",
+    # Config
+    "config", 
+    "fv_configs",
+    # Enums
+    "TimeHorizon", 
+    "ModelStep", 
+    "ModelSteps", 
+    "TimeHorizons", 
+    # Types
+    "Config", 
+    "Level", 
+    "Partition", 
+    "PartitionItem", 
+    "FeatureViewConfig", 
+    "FeatureViewConfigs",
+    "ModelStepResult",
+    "ModelStepResults",
+    # Data functions (lazy loaded)
+    "get_df",
+    "get_df_from_cache", 
+    "clean_df",
+    # Model (lazy loaded)
+    "ModelService",
+]
