@@ -284,7 +284,6 @@ def get_pipeline(
 
 def prepare_data(
     df: pd.DataFrame,
-    target_col: str,
     preprocessor: ColumnTransformer,
     fit_preprocessor: bool = True,
 ) -> pd.DataFrame:
@@ -293,7 +292,6 @@ def prepare_data(
     
     Args:
         df: Input DataFrame
-        target_col: Target column name
         preprocessor: Fitted or unfitted ColumnTransformer
         fit_preprocessor: Whether to fit the preprocessor (True for train, False for predict)
         
@@ -312,9 +310,67 @@ def prepare_data(
     else:
         result_df = pd.DataFrame(transformed)
     
-    # Add target if present
-    if target_col in df.columns:
-        result_df['y'] = df[target_col].values
-    
     return result_df
 
+
+def run_pipeline(
+    train_df: pd.DataFrame,
+    predict_df: pd.DataFrame,
+    target_col: str,
+    cat_cols: list[str],
+    num_cols: list[str],
+    max_categories: int | None = None,
+    xgboost_params: dict[str, Any] | None = None,
+    impute_strategy: str = 'median',
+) -> tuple[pd.DataFrame, XGBoostRegressorWrapper]:
+    """
+    Run the XGBoost pipeline.
+    """
+    # Create pipeline
+    model, preprocessor = get_pipeline(
+        cat_cols,
+        num_cols,
+        max_categories,
+        xgboost_params,
+        impute_strategy,
+    )
+
+    # Extract target before preprocessing (target is not in cat_cols/num_cols)
+    y_train: pd.Series = train_df[target_col]  # type: ignore[assignment]
+    
+    # Prepare training data
+    train_prepared = prepare_data(
+        train_df,
+        preprocessor,
+        fit_preprocessor=True,
+    )
+    
+    # Use the preprocessed features as X_train
+    X_train = train_prepared
+
+    # Fit the model
+    logger.info(f"Training on {len(X_train)} samples...")
+    model.fit(X_train, y_train)
+
+    # Prepare prediction data
+    logger.info("Preparing prediction data...")
+    predict_prepared = prepare_data(
+        df=predict_df,
+        preprocessor=preprocessor,
+        fit_preprocessor=False,
+    )
+
+    # Use the preprocessed features for prediction
+    X_predict = predict_prepared
+    predictions = model.predict_with_intervals(X_predict) 
+
+    result_df = predict_df.reset_index(drop=True).copy()
+    predictions_aligned = predictions.reset_index(drop=True)
+
+    # Add only the prediction columns (no modifications to existing columns)
+    result_df[f'PRED_{target_col}'] = predictions_aligned['yhat'].values
+    result_df[f'PRED_{target_col}_LOWER'] = predictions_aligned['yhat_lower'].values
+    result_df[f'PRED_{target_col}_UPPER'] = predictions_aligned['yhat_upper'].values
+
+    logger.info(f"Result dataframe now has {len(result_df.columns)} columns (added 3 prediction columns)")
+    return result_df, model

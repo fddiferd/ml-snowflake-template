@@ -1,9 +1,30 @@
-from pydantic import BaseModel, model_validator, ConfigDict
-from typing import TypeAlias, Callable, Any
-from enum import Enum
+from __future__ import annotations
 
-# MARK: - Project Config
+from pydantic import BaseModel, model_validator, ConfigDict
+from typing import TYPE_CHECKING, Callable, Any
+
+if TYPE_CHECKING:
+    from typing import TypeAlias
+    from enum import Enum
+    
+    # Import types only for type checking, not at runtime
+    TimeHorizon: TypeAlias = Enum
+    TimeHorizons: TypeAlias = list[Enum]
+    ModelStep: TypeAlias = Enum
+    ModelSteps: TypeAlias = list[Enum]
+
+
+# MARK: - FV Config
+class FeatureViewConfig(BaseModel):
+    name: str
+    query: str
+
+FeatureViewConfigs: TypeAlias = list[FeatureViewConfig]
+
+
+# MARK: - Levels
 class Level(BaseModel):
+    """A level is a group of columns that are used to group the data."""
     group_bys: list[str]
 
     @model_validator(mode='before')
@@ -37,14 +58,22 @@ class Level(BaseModel):
 Levels: TypeAlias = list[Level]
 
 
-class ModelStep(BaseModel):
-    predict_col: str
-    
+# MARK: - Partitions
+class PartitionItem(BaseModel):
+    value: Any
+    additional_regressor_cols: list[str]
 
+    @model_validator(mode='before')
+    def capitalize_fields(cls, values):
+        if 'additional_regressor_cols' in values:
+            values['additional_regressor_cols'] = [col.upper() for col in values['additional_regressor_cols']]
+        return values
+        
+PartitionItems: TypeAlias = list[PartitionItem]
 
 class Partition(BaseModel):
     name: str
-    values: list[Any]
+    items: PartitionItems
 
     @model_validator(mode='before')
     def capitalize_fields(cls, values):
@@ -53,15 +82,17 @@ class Partition(BaseModel):
         return values
 
 
+# MARK: - Config
 class Config(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     
     version_number: int
     min_cohort_size: int
-    timestamp_col: str | None
-    partition: Partition | None
+    timestamp_col: str
+    partition: Partition
     levels: Levels
-    time_horizons: list[Enum]
+    time_horizons: list[Any]  # TimeHorizons at type-check time
+    model_steps: list[Any]  # ModelSteps at type-check time
 
     cat_cols: list[str]
     num_cols: list[str]
@@ -83,10 +114,3 @@ class Config(BaseModel):
         if 'boolean_cols' in values:
             values['boolean_cols'] = [col.upper() for col in values['boolean_cols']]
         return values
-
-# MARK: - Feature View Config
-class FeatureViewConfig(BaseModel):
-    name: str
-    query: str
-
-FeatureViewConfigs: TypeAlias = list[FeatureViewConfig]

@@ -1,7 +1,9 @@
+import pandas as pd
 from snowflake.snowpark import Session
 from snowflake.snowpark.dataframe import DataFrame
 
 from projects import Project
+from projects.pltv import config
 from projects.pltv.objects import Level
 from projects.pltv.queries.spine import QUERY as SPINE_QUERY
 from projects.pltv.queries.feature_views import feature_view_configs
@@ -9,9 +11,10 @@ from projects.pltv.queries.feature_views import feature_view_configs
 from src.services.feature_store_service import FeatureStoreService
 
 
+CACHE_FILE_NAME = "output_dataset.parquet"
+
+
 def get_dataset(session: Session, level: Level) -> DataFrame:
-    # get config
-    config = Project.PLTV.config
     # init feature store service
     svc = FeatureStoreService(
         session, 
@@ -40,6 +43,19 @@ def get_dataset(session: Session, level: Level) -> DataFrame:
         )
     # get dataset
     return svc.get_dataset()
+
+def get_df(session: Session, level: Level, save_to_cache: bool = False) -> pd.DataFrame:
+    dataset = get_dataset(session, level)
+    df = pd.DataFrame(dataset)
+    if save_to_cache:
+        df.to_parquet(CACHE_FILE_NAME)
+    return df
+
+def get_df_from_cache() -> pd.DataFrame:
+    try:
+        return pd.read_parquet(CACHE_FILE_NAME)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Cache file {CACHE_FILE_NAME} not found")
 
 
 if __name__ == "__main__":
