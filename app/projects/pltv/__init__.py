@@ -51,7 +51,9 @@ from projects.pltv.core.base_models import (
     FeatureViewConfig, 
     FeatureViewConfigs,
     ModelStepResult,
-    ModelStepResults
+    ModelStepResults,
+    ModelStepPredictionResult,
+    ModelStepPredictionResults,
 )
 
 
@@ -107,6 +109,8 @@ __all__ = [
     "FeatureViewConfigs",
     "ModelStepResult",
     "ModelStepResults",
+    "ModelStepPredictionResult",
+    "ModelStepPredictionResults",
     # Data functions (lazy loaded)
     "get_df",
     "get_df_from_cache", 

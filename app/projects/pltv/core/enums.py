@@ -79,6 +79,17 @@ class ModelStep(Enum):
     def pred_upper_col(self) -> str:
         return f'PRED_{self.target_col}_UPPER'
 
+    @property
+    def previous_step_min_cohort_col(self) -> str:
+        """Returns the column name for the previous step min cohort."""
+        match self:
+            case ModelStep.PROMO_ACTIVATION_RATE:
+                return 'eligible_promo_activations'.upper()
+            case ModelStep.FIRST_REBILL_RATE:
+                return 'eligible_first_rebills'.upper()
+            case _:
+                return f'gross_adds_created_over_{self._days_ago_col}_days_ago'.upper()
+
     def get_additional_regressor_cols(self, partition: Partition, partition_value: Any) -> list[str]:
         """Returns target_cols from all previous steps as additional regressors."""
         additional_regressor_cols = partition.get_additional_regressor_cols(partition_value)
@@ -94,16 +105,16 @@ class ModelStep(Enum):
             case _:
                 return True
 
-    @property
-    def previous_step_min_cohort_col(self) -> str:
-        """Returns the column name for the previous step min cohort."""
+    def get_prediction_base_col(self, partition: Partition, partition_value: Any) -> str:
+        """For prediction, we need to compare the previous step col / base col to see if its greater than a certain value to determine if its BAKED"""
+        gross_adds_col = 'gross_adds'.upper()
         match self:
-            case ModelStep.PROMO_ACTIVATION_RATE:
-                return 'eligible_promo_activations'.upper()
             case ModelStep.FIRST_REBILL_RATE:
-                return 'eligible_first_rebills'.upper()
+                if partition == Partition.PLAN__IS_PROMO and partition_value == True:
+                    return 'eligible_promo_activations'.upper()
+                return gross_adds_col
             case _:
-                return f'gross_adds_created_over_{self._days_ago_col}_days_ago'.upper()
+                return gross_adds_col
 
     @property
     def _days_ago_col(self) -> int:

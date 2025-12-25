@@ -1,4 +1,4 @@
-from pydantic import BaseModel, model_validator, ConfigDict
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 from typing import Callable, Any, TypeAlias
 from pandas import DataFrame
 
@@ -51,6 +51,7 @@ class Config(BaseModel):
     
     version_number: int
     min_cohort_size: int
+    prediction_base_threshold: float = Field(description="The threshold for the prediction base column to be considered baked", ge=0.0, le=1.0)
     timestamp_col: str
     partitions: Partitions
     levels: Levels
@@ -106,3 +107,18 @@ class ModelStepResult(BaseModel):
     model: XGBoostRegressorWrapper
 
 ModelStepResults: TypeAlias = list[ModelStepResult]
+
+
+class ModelStepPredictionResult(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    prediction_rows: int
+    partition_item: PartitionItem
+    step: ModelStep
+    cat_cols: list[str]
+    num_cols: list[str]
+    boolean_cols: list[str]
+    output_df: DataFrame
+    result_df: DataFrame
+
+ModelStepPredictionResults: TypeAlias = list[ModelStepPredictionResult]

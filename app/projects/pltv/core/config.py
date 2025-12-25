@@ -34,6 +34,7 @@ def get_avg_net_billings_column(time_horizon: TimeHorizon) -> str:
 config = Config(
     version_number=1,
     min_cohort_size=250,
+    prediction_base_threshold=0.75,
     timestamp_col="start_date_month",
     partitions=partitions,
     levels=[
