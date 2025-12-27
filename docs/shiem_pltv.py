@@ -1,4 +1,4 @@
-from pltv.db import SnowflakeContext
+from pltv.db import SnowflakeContext # type: ignore
 import matplotlib.pyplot as plt
 import pandas as pd
 from prophet import Prophet
@@ -154,7 +154,7 @@ def forecast(row):
             full.merge(
                 forecast[["ds", "yhat"]].rename(
                     columns={"yhat": f"{target}_predicted"}
-                ),
+                ), # type: ignore
                 how="left",
                 left_index=True,
                 right_on="ds",

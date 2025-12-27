@@ -4,7 +4,7 @@ RETENTION_METRICS_QUERY = """
 with retention_metrics as (
     -- clean the column names to remove gross add entity
     select
-        gross_add__created__month as start_date_month,
+        gross_add__created__month as {timestamp_col},
         gross_add__brand as brand,
         gross_add__sku_type as sku_type,
         gross_add__channel as channel,
@@ -19,10 +19,9 @@ with retention_metrics as (
 ) 
 
 select
-    start_date_month,
-    -- group bys
+    {timestamp_col},
     {group_bys}
-    plan__is_promo,
+    {partitions}
     -- metrics
     sum(eligible_promo_activations) as eligible_promo_activations,
     sum(eligible_first_rebills) as eligible_first_rebills,
@@ -41,7 +40,7 @@ group by all
 BILLING_METRICS_QUERY = """
 with billing_metrics as (
     select
-        gross_add__created__month as start_date_month,
+        gross_add__created__month as {timestamp_col},
         gross_add__brand as brand,
         gross_add__sku_type as sku_type,
         gross_add__channel as channel,
@@ -58,10 +57,9 @@ with billing_metrics as (
 )
 
 select
-    start_date_month,
-    -- group bys
+    {timestamp_col},
     {group_bys}
-    plan__is_promo,
+    {partitions}
     -- metrics
     sum(net_billings_30_days_since_gross_add) as net_billings_30_days,
     sum(net_billings_60_days_since_gross_add) as net_billings_60_days,

@@ -40,7 +40,12 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OrdinalEncoder
 from sklearn.base import BaseEstimator, RegressorMixin
 
+
 logger = logging.getLogger(__name__)
+
+PRED_YHAT_COL = 'YHAT'
+PRED_YHAT_LOWER_COL = 'YHAT_LOWER'
+PRED_YHAT_UPPER_COL = 'YHAT_UPPER'
 
 
 class XGBoostRegressorWrapper(BaseEstimator, RegressorMixin):
@@ -124,7 +129,10 @@ class XGBoostRegressorWrapper(BaseEstimator, RegressorMixin):
     def predict_with_intervals(
         self, 
         X: pd.DataFrame, 
-        confidence_level: float = 0.95
+        confidence_level: float = 0.95,
+        pred_col: str = PRED_YHAT_COL,
+        pred_lower_col: str = PRED_YHAT_LOWER_COL,
+        pred_upper_col: str = PRED_YHAT_UPPER_COL,
     ) -> pd.DataFrame:
         """
         Make predictions with uncertainty intervals.
@@ -135,7 +143,7 @@ class XGBoostRegressorWrapper(BaseEstimator, RegressorMixin):
             confidence_level: Confidence level for intervals (default 0.95)
             
         Returns:
-            DataFrame with yhat, yhat_lower, yhat_upper
+            DataFrame with pred_col, pred_lower_col, pred_upper_col
         """
         if self.model_ is None:
             raise ValueError("Model has not been fitted yet!")
@@ -150,9 +158,9 @@ class XGBoostRegressorWrapper(BaseEstimator, RegressorMixin):
         
         # Create result dataframe
         result = pd.DataFrame({
-            'yhat': predictions,
-            'yhat_lower': predictions - interval_width,
-            'yhat_upper': predictions + interval_width
+            pred_col: predictions,
+            pred_lower_col: predictions - interval_width,
+            pred_upper_col: predictions + interval_width
         })
         
         return result
@@ -337,9 +345,9 @@ def run_pipeline(
     max_categories: int | None = None,
     xgboost_params: dict[str, Any] | None = None,
     impute_strategy: str = 'median',
-    pred_col: str = 'yhat',
-    pred_lower_col: str = 'yhat_lower',
-    pred_upper_col: str = 'yhat_upper',
+    pred_col: str = PRED_YHAT_COL,
+    pred_lower_col: str = PRED_YHAT_LOWER_COL,
+    pred_upper_col: str = PRED_YHAT_UPPER_COL,
 ) -> tuple[pd.DataFrame, XGBoostRegressorWrapper]:
     """
     Run the XGBoost pipeline.
@@ -381,15 +389,20 @@ def run_pipeline(
 
     # Use the preprocessed features for prediction
     X_predict = predict_prepared
-    predictions = model.predict_with_intervals(X_predict) 
+    predictions = model.predict_with_intervals(
+        X_predict,
+        pred_col=pred_col,
+        pred_lower_col=pred_lower_col,
+        pred_upper_col=pred_upper_col,
+    ) 
 
     result_df = predict_df.reset_index(drop=True).copy()
     predictions_aligned = predictions.reset_index(drop=True)
 
     # Add only the prediction columns (no modifications to existing columns)
-    result_df[pred_col] = predictions_aligned['yhat'].values
-    result_df[pred_lower_col] = predictions_aligned['yhat_lower'].values
-    result_df[pred_upper_col] = predictions_aligned['yhat_upper'].values
+    result_df[pred_col] = predictions_aligned[PRED_YHAT_COL].values
+    result_df[pred_lower_col] = predictions_aligned[PRED_YHAT_LOWER_COL].values
+    result_df[pred_upper_col] = predictions_aligned[PRED_YHAT_UPPER_COL].values
 
     logger.info(f"Result dataframe now has {len(result_df.columns)} columns (added 3 prediction columns)")
     return result_df, model

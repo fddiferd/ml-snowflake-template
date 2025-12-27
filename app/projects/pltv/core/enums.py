@@ -2,6 +2,48 @@ from enum import Enum
 from typing import TypeAlias, Any
 
 
+# MARK: Level
+class Level(Enum):
+    BRAND = 1
+    SKU_TYPE = 2
+    CHANNEL = 3
+    TRAFFIC_SOURCE = 4
+    CAMPAIGN = 5
+
+    @property
+    def name(self) -> str:
+        match self:
+            case Level.BRAND:
+                return "BRAND"
+            case Level.SKU_TYPE:
+                return "SKU_TYPE"
+            case Level.CHANNEL:
+                return "CHANNEL"
+            case Level.TRAFFIC_SOURCE:
+                return "TRAFFIC_SOURCE"
+            case Level.CAMPAIGN:
+                return "CAMPAIGN"
+            case _:
+                raise ValueError(f"Invalid level: {self}")
+
+    @property
+    def group_bys(self) -> list[str]:
+        """Returns all ModelStep enums with a lower value."""
+        return [l.name for l in Level if l.value <= self.value]
+
+    @property
+    def sql_fields(self) -> str:
+        # Ensure there is a comma after every item, including the last one
+        return ", ".join(self.group_bys) + ("," if self.group_bys else "")
+
+    def get_key_fields(self) -> list[tuple[str, list[str]]]:
+        """Returns list of tuples with level name and cumulative sublists of group_bys."""
+        levels = [l for l in Level if l.value <= self.value]
+        return [(l.name, self.group_bys[:i+1]) for i, l in enumerate(levels)]
+
+Levels: TypeAlias = list[Level]
+levels = [l for l in Level]
+
 # MARK: Partition
 class Partition(Enum):
     PLAN__IS_PROMO = "plan__is_promo"
@@ -32,6 +74,8 @@ class Partition(Enum):
 
 Partitions: TypeAlias = list[Partition]
 partitions = [p for p in Partition]
+parition_fields = [p.name.upper() for p in partitions]
+parition_sql_fields = ", ".join(parition_fields) + ("," if parition_fields else "")
 
 
 # MARK: - Time Horizons
@@ -68,19 +112,7 @@ class ModelStep(Enum):
         return self.name.upper()
 
     @property
-    def pred_col(self) -> str:
-        return f'PRED_{self.target_col}'
-
-    @property
-    def pred_lower_col(self) -> str:
-        return f'PRED_{self.target_col}_LOWER'
-
-    @property
-    def pred_upper_col(self) -> str:
-        return f'PRED_{self.target_col}_UPPER'
-
-    @property
-    def previous_step_min_cohort_col(self) -> str:
+    def min_cohort_col(self) -> str:
         """Returns the column name for the previous step min cohort."""
         match self:
             case ModelStep.PROMO_ACTIVATION_RATE:

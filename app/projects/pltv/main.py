@@ -1,3 +1,10 @@
+import logging
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    from dotenv import load_dotenv
+    load_dotenv()
+
 from projects.pltv import (
     Level,
     get_session,
@@ -7,31 +14,48 @@ from projects.pltv import (
     ModelService,
 )
 
-def main(level: Level, from_cache: bool = False, to_cache: bool = False):
 
+logger = logging.getLogger(__name__)
+
+
+def main_level(level: Level, from_cache: bool = False, to_cache: bool = False):
     # get snowflake session
     session = get_session()
-
     # get dataset
     if from_cache:
-        df = get_df_from_cache()
+        try:
+            df = get_df_from_cache(level)
+        except FileNotFoundError:
+            logger.warning(f"Cache file not found, getting dataset from snowflake")
+            df = get_df(session, level, save_to_cache=to_cache)
     else:
         df = get_df(session, level, save_to_cache=to_cache)
-
     # clean dataset
     clean_df(df)
-
     # run model service
-    model_service = ModelService(level, df)
+    model_service = ModelService(
+        session, 
+        level, 
+        df,
+        test_train_split=True,
+        save_to_db=True,
+    )
     model_service.run()
         
 
+def main(from_cache: bool = False, to_cache: bool = False):
+    for level in Level:
+        if level == Level.BRAND:
+            continue
+        main_level(
+            level, 
+            from_cache, 
+            to_cache
+        )
+
 
 if __name__ == "__main__":
-    import logging
-    logging.basicConfig(level=logging.INFO)
-
-    
-    level = Level(group_bys=["brand", "sku_type", "channel"])
-
-    main(level, from_cache=True, to_cache=True)
+    main(
+        from_cache=True,
+        to_cache=True
+    )

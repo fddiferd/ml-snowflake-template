@@ -9,18 +9,25 @@ Usage:
     from projects.pltv import Level, config, get_session, get_df, clean_df, ModelService
     
     session = get_session()
-    df = get_df(session, Level(group_bys=["brand", "sku_type", "channel"]))
+    df = get_df(session, Level.CHANNEL)
     clean_df(df)
     ModelService(level, df).run()
 
 Exports:
     Session:    get_session
     Config:     config, fv_configs
-    Types:      Level, Config, Partition, PartitionItem, FeatureViewConfig
+    Types:      Config, Partition, PartitionItem, FeatureViewConfig
     Enums:      TimeHorizon, ModelStep
     Data:       get_df, get_df_from_cache, clean_df
     Model:      ModelService
 """
+
+if __name__ == "__main__":
+    import logging
+    from dotenv import load_dotenv
+    load_dotenv()
+    logging.basicConfig(level=logging.INFO)
+
 
 from typing import TYPE_CHECKING
 from snowflake.snowpark import Session
@@ -38,6 +45,10 @@ from src.connection.session import get_session as get_snowflake_session
 # Core components (eager imports - no circular dependency issues)
 from projects.pltv.core.config import config, fv_configs
 from projects.pltv.core.enums import (
+    Level,
+    Levels,
+    Partitions,
+    Partition,
     TimeHorizon, 
     ModelStep, 
     ModelSteps, 
@@ -45,15 +56,15 @@ from projects.pltv.core.enums import (
 )
 from projects.pltv.core.base_models import (
     Config, 
-    Level, 
-    Partition, 
     PartitionItem, 
     FeatureViewConfig, 
     FeatureViewConfigs,
-    ModelStepResult,
+    ModelStepMetadata,
     ModelStepResults,
-    ModelStepPredictionResult,
+    ModelStepPredictionMetadata,
     ModelStepPredictionResults,
+    ModelMetadata,
+    ModelStatus,
 )
 
 
@@ -103,14 +114,18 @@ __all__ = [
     # Types
     "Config", 
     "Level", 
+    "Levels",
+    "Partitions",
     "Partition", 
     "PartitionItem", 
     "FeatureViewConfig", 
     "FeatureViewConfigs",
-    "ModelStepResult",
+    "ModelStepMetadata",
     "ModelStepResults",
-    "ModelStepPredictionResult",
+    "ModelStepPredictionMetadata",
     "ModelStepPredictionResults",
+    "ModelMetadata",
+    "ModelStatus",
     # Data functions (lazy loaded)
     "get_df",
     "get_df_from_cache", 
@@ -118,3 +133,6 @@ __all__ = [
     # Model (lazy loaded)
     "ModelService",
 ]
+
+if __name__ == "__main__":
+    get_session()

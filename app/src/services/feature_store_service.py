@@ -26,14 +26,15 @@ class FeatureStoreService:
         self.spine: DataFrame | None = None
         self.timestamp_col: str | None = timestamp_col
 
-        current_schema = self.session.get_current_schema()
-        logger.info(f"Current schema: {current_schema}")
-        if current_schema:
-            logger.info(f"Creating schema {self.name}")
-            self.session.sql(f"CREATE OR REPLACE SCHEMA {self.name}")
 
     # Public Methods
-    def set_entity(self, join_keys: list[str], name: str | None = None, desc: str | None = None, recreate: bool = False) -> None:
+    def set_entity(
+        self, 
+        join_keys: list[str], 
+        name: str | None = None, 
+        desc: str | None = None, 
+        recreate: bool = False
+    ) -> None:
         name = name or f'{self.name}_ENTITY'
         
         # If recreate is True, try to delete existing entity and its dependencies
@@ -64,7 +65,15 @@ class FeatureStoreService:
         logger.info(f"Entity {name} created")
         self.entities.append(entity)
 
-    def set_feature_view(self, feature_df: DataFrame, version_number: int, name: str | None = None, refresh_freq: str | None = None, desc: str | None = None) -> None:
+    def set_feature_view(
+        self, 
+        feature_df: DataFrame, 
+        version_number: int, 
+        name: str | None = None, 
+        refresh_freq: str | None = None, 
+        desc: str | None = None,
+        overwrite: bool = True
+    ) -> None:
         name = name or f'{self.name}_FV'
         version = get_version(version_number)
         
@@ -77,7 +86,7 @@ class FeatureStoreService:
             refresh_freq=refresh_freq,
             desc=desc or f'{name} feature view',
         )
-        registered_fv = self.fs.register_feature_view(feature_view, version=version, overwrite=True)
+        registered_fv = self.fs.register_feature_view(feature_view, version=version, overwrite=overwrite)
         logger.info(f"Feature view {name} created")
         self.feature_views.append(registered_fv)
 
@@ -103,7 +112,7 @@ class FeatureStoreService:
         return FeatureStore(
             session=self.session,
             database=self.session.get_current_database(),
-            name=f'{self.name}',
+            name=self.session.get_current_schema(),
             default_warehouse=self.session.get_current_warehouse(),
             creation_mode=CreationMode.CREATE_IF_NOT_EXIST,
         )

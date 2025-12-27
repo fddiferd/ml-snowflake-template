@@ -13,7 +13,7 @@ Usage:
     
     service = ModelService(level, df)
     service.run()
-    results = service.results  # List[ModelStepResult]
+    results = service.results  # List[ModelStepMetadata]
 """
 
 from projects.pltv.model.model_service import ModelService

@@ -1,9 +1,9 @@
 QUERY = """
 select
-    date_trunc(month, gross_add__created__day) start_date_month,
-    -- group bys
+    date_trunc(month, gross_add__created__day) {timestamp_col},
     {group_bys}
-    plan__is_promo,
+    {partitions}
+    {keys}
     -- dims
     sum(case when datediff(day, gross_add__created__day, current_date()) > 1 then gross_adds else 0 end) as gross_adds_created_over_1_days_ago,
     sum(case when datediff(day, gross_add__created__day, current_date()) > 3 then gross_adds else 0 end) as gross_adds_created_over_3_days_ago,

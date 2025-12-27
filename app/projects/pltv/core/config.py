@@ -1,12 +1,18 @@
+if __name__ == "__main__":
+    import logging
+    from dotenv import load_dotenv
+    load_dotenv()
+    logging.basicConfig(level=logging.INFO)
+
 from projects.pltv.core.enums import (
     TimeHorizon, 
+    levels,
     partitions,
     time_horizons,
     model_steps,
 )
 from projects.pltv.core.base_models import (
     Config, 
-    Level, 
     FeatureViewConfig,
     FeatureViewConfigs
 )
@@ -37,15 +43,7 @@ config = Config(
     prediction_base_threshold=0.75,
     timestamp_col="start_date_month",
     partitions=partitions,
-    levels=[
-        Level(
-            group_bys=[
-                'brand',
-                'sku_type',
-                'channel',
-            ]
-        )
-    ],
+    levels=levels,
     time_horizons=time_horizons,
     model_steps=model_steps,
     # -- Common Model Step Features --
@@ -60,3 +58,8 @@ config = Config(
     get_net_billings_days_column=get_net_billings_days_column,
     get_avg_net_billings_column=get_avg_net_billings_column,
 )
+
+if __name__ == "__main__":
+
+    from projects.pltv.core.enums import Level
+    print(config.get_key_names(Level.CHANNEL))

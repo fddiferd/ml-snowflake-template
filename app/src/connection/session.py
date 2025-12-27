@@ -6,6 +6,7 @@ from cryptography.hazmat.primitives import serialization
 from snowflake.snowpark import Session
 from snowflake.snowpark.context import get_active_session
 
+from src.environment import environment
 from projects import Project
 
 
@@ -67,10 +68,15 @@ def get_session(project: Project) -> Session:
         "user": conn_params["user"],
         "role": conn_params.get("role"),
         "warehouse": conn_params.get("warehouse"),
-        "database": conn_params.get("database"),
+        "database": project.database_name,
         "private_key": private_key_bytes, # type: ignore
-        "schema": project.schema_name,
+        "schema": environment.schema_name,
     }).create()
+
+    # create or replace database and schema
+    session.sql(f"CREATE OR REPLACE DATABASE {project.database_name}").collect()
+    session.sql(f"CREATE OR REPLACE SCHEMA {environment.schema_name}").collect()
+    logger.info(f"Created or replaced database {project.database_name} and schema {environment.schema_name}")
 
     logger.info(f"Connected to Snowflake for project {project.value}")
     logger.info(f"  Account: {session.get_current_account()}")
@@ -78,6 +84,6 @@ def get_session(project: Project) -> Session:
     logger.info(f"  Role: {session.get_current_role()}")
     logger.info(f"  Database: {session.get_current_database()}")
     logger.info(f"  Warehouse: {session.get_current_warehouse()}")
-    logger.info(f"  Schema: {project.schema_name}")
+    logger.info(f"  Schema: {environment.schema_name}")
 
     return session

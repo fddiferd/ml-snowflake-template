@@ -1,3 +1,9 @@
+if __name__ == "__main__":
+    import logging
+    from dotenv import load_dotenv
+    load_dotenv()
+    logging.basicConfig(level=logging.INFO)
+
 import pandas as pd
 import logging
 from snowflake.snowpark import Session
@@ -7,25 +13,32 @@ from src.services.feature_store_service import FeatureStoreService
 
 from projects import Project
 from projects.pltv.core.config import config, fv_configs
-from projects.pltv.core.base_models import Level
 from projects.pltv.data.queries.spine import QUERY as SPINE_QUERY
-
-
-CACHE_FILE_NAME = "output_dataset.parquet"
+from projects.pltv.core.enums import parition_sql_fields, Level
 
 
 logger = logging.getLogger(__name__)
 
 
+def get_file_name(level: Level) -> str:
+    return f"PLTV_SPINE_DATA_{level.name}.parquet"
+
 def get_dataset(session: Session, level: Level) -> DataFrame:
     # init feature store service
     svc = FeatureStoreService(
         session, 
-        name=Project.PLTV.schema_name, 
+        name=Project.PLTV.name, 
         timestamp_col=config.timestamp_col
     )
     # spine
-    spine_df = session.sql(SPINE_QUERY.format(group_bys=level.sql_fields))
+    spine_df = session.sql(
+        SPINE_QUERY.format(
+            timestamp_col=config.timestamp_col,
+            group_bys=level.sql_fields,
+            partitions=parition_sql_fields,
+            keys=config.get_keys_sql_fields(level)
+        )
+    )
     svc.set_spine(spine_df)
     # entity
     svc.set_entity(
@@ -37,7 +50,11 @@ def get_dataset(session: Session, level: Level) -> DataFrame:
     for feature_view_config in fv_configs:
         logger.info(f'Setting feature view {feature_view_config.name} for level {level.name}')
         feature_df = session.sql(
-            feature_view_config.query.format(group_bys=level.sql_fields)
+            feature_view_config.query.format(
+                timestamp_col=config.timestamp_col,
+                group_bys=level.sql_fields,
+                partitions=parition_sql_fields
+            )
         )
         svc.set_feature_view(
             feature_df, 
@@ -49,26 +66,20 @@ def get_dataset(session: Session, level: Level) -> DataFrame:
 
 def get_df(session: Session, level: Level, save_to_cache: bool = False) -> pd.DataFrame:
     dataset = get_dataset(session, level)
-    df = pd.DataFrame(dataset)
+    df = dataset.to_pandas()
     if save_to_cache:
-        df.to_parquet(CACHE_FILE_NAME)
+        df.to_parquet(get_file_name(level))
     return df
 
-def get_df_from_cache() -> pd.DataFrame:
+def get_df_from_cache(level: Level) -> pd.DataFrame:
     try:
-        return pd.read_parquet(CACHE_FILE_NAME)
+        return pd.read_parquet(get_file_name(level))
     except FileNotFoundError:
-        raise FileNotFoundError(f"Cache file {CACHE_FILE_NAME} not found")
+        raise FileNotFoundError(f"Cache file {get_file_name(level)} not found")
 
 
 if __name__ == "__main__":
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
-
     from projects.pltv import get_session
 
     session = get_session()
-    dataset = get_dataset(session, Level(group_bys=["brand", "sku_type", "channel"]))
-    df = dataset.to_pandas()
-    df.to_parquet("output_dataset.parquet")
+    get_df(session, Level.CHANNEL, save_to_cache=True)
