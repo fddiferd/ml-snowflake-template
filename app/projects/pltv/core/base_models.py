@@ -128,7 +128,10 @@ class ModelMetadata(BaseModel):
         data = self.model_dump(mode='json')
         df = DataFrame([data]).reset_index(drop=True)
         df.columns = df.columns.str.upper()
-        session.write_pandas(df, table_name, auto_create_table=True, overwrite=False)
+        if len(df) > 0:
+            session.write_pandas(df, table_name, auto_create_table=True, overwrite=False)
+        else:
+            logger.warning(f"No data to save for level {self.level_name}")
 
 class ModelStepBase(BaseModel):
     """Base model for model step metadata and prediction metadata"""
@@ -172,13 +175,19 @@ class ModelStepMetadata(ModelStepBase):
 
         df = DataFrame([data]).reset_index(drop=True)
         df.columns = df.columns.str.upper()
-        session.write_pandas(df, f'{level_name}_{metadata_table_name}', auto_create_table=True, overwrite=False)
+        if len(df) > 0:
+            session.write_pandas(df, f'{level_name}_{metadata_table_name}', auto_create_table=True, overwrite=False)
+        else:
+            logger.warning(f"No data to save for level {level_name} and metadata table {metadata_table_name}")
 
         feature_importances_df = self.feature_importances.copy().reset_index(drop=True)
         feature_importances_df['id'] = self.id
         feature_importances_df.columns = feature_importances_df.columns.str.upper()
 
-        session.write_pandas(feature_importances_df, f'{level_name}_{feature_importances_table_name}', auto_create_table=True, overwrite=False)
+        if len(feature_importances_df) > 0:
+            session.write_pandas(feature_importances_df, f'{level_name}_{feature_importances_table_name}', auto_create_table=True, overwrite=False)
+        else:
+            logger.warning(f"No data to save for level {level_name} and feature importances table {feature_importances_table_name}")
 
 ModelStepResults: TypeAlias = list[ModelStepMetadata]
 
@@ -205,12 +214,18 @@ class ModelStepPredictionMetadata(ModelStepBase):
 
         df = DataFrame([data]).reset_index(drop=True)
         df.columns = df.columns.str.upper()
-        session.write_pandas(df, f'{level_name}_{metadata_table_name}', auto_create_table=True, overwrite=False)
+        if len(df) > 0:
+            session.write_pandas(df, f'{level_name}_{metadata_table_name}', auto_create_table=True, overwrite=False)
+        else:
+            logger.warning(f"No data to save for level {level_name} and metadata table {metadata_table_name}")
 
         prediction_results_df = self.result_df.copy().reset_index(drop=True)
         prediction_results_df['id'] = self.id
         prediction_results_df.columns = prediction_results_df.columns.str.upper()
 
-        session.write_pandas(prediction_results_df, f'{level_name}_{prediction_results_table_name}', auto_create_table=True, overwrite=False)
+        if len(prediction_results_df) > 0:
+            session.write_pandas(prediction_results_df, f'{level_name}_{prediction_results_table_name}', auto_create_table=True, overwrite=False)
+        else:
+            logger.warning(f"No data to save for level {level_name} and prediction results table {prediction_results_table_name}")
 
 ModelStepPredictionResults: TypeAlias = list[ModelStepPredictionMetadata]

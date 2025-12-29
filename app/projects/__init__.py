@@ -7,10 +7,15 @@ __all__ = ["Project"]
 
 
 class Project(Enum):
+    CORE = "CORE" # general core database
+
+    # specific projects
     PLTV = "PLTV"
 
     @property
     def database_name(self) -> str:
+        if self == Project.CORE:
+            return "ML_LAYER_DB"
         return f"ML_LAYER_{self.value.upper()}_DB"
 
     @property
@@ -25,5 +30,4 @@ if __name__ == "__main__":
 
     logger.info("Project Enum Members and Configs:")
     for project in Project:
-        logger.info(f"\nProject: {project.name}")
-        logger.info(f"  database_name: {project.database_name}")
+        logger.info(f"Project: {project.name} - database name: {project.database_name}")

@@ -15,13 +15,11 @@ from projects import Project
 from projects.pltv.core.config import config, fv_configs
 from projects.pltv.data.queries.spine import QUERY as SPINE_QUERY
 from projects.pltv.core.enums import parition_sql_fields, Level
+from projects.pltv.data.utils import get_file_path
 
 
 logger = logging.getLogger(__name__)
 
-
-def get_file_name(level: Level) -> str:
-    return f"PLTV_SPINE_DATA_{level.name}.parquet"
 
 def get_dataset(session: Session, level: Level) -> DataFrame:
     # init feature store service
@@ -68,14 +66,14 @@ def get_df(session: Session, level: Level, save_to_cache: bool = False) -> pd.Da
     dataset = get_dataset(session, level)
     df = dataset.to_pandas()
     if save_to_cache:
-        df.to_parquet(get_file_name(level))
+        df.to_parquet(get_file_path(level.name))
     return df
 
 def get_df_from_cache(level: Level) -> pd.DataFrame:
     try:
-        return pd.read_parquet(get_file_name(level))
+        return pd.read_parquet(get_file_path(level.name))
     except FileNotFoundError:
-        raise FileNotFoundError(f"Cache file {get_file_name(level)} not found")
+        raise FileNotFoundError(f"Cache file {get_file_path(level.name)} not found")
 
 
 if __name__ == "__main__":

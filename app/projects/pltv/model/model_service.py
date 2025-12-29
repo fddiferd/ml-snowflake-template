@@ -1,14 +1,16 @@
 import logging
 import uuid
+import os
 from sklearn.model_selection import train_test_split
 from datetime import datetime, timezone
 from typing import cast
-from pandas import DataFrame, Series, concat
+from pandas import DataFrame, Series, concat, read_parquet
 from snowflake.snowpark import Session
 
 from src.pipeline.xgboost import run_pipeline, PRED_YHAT_COL, PRED_YHAT_LOWER_COL, PRED_YHAT_UPPER_COL
 from src.utils.model import evaluate_model
 
+from projects.pltv.data.utils import overwrite_or_append_parquet
 from projects.pltv import (
     config, 
     PartitionItem,
@@ -25,11 +27,13 @@ from projects.pltv import (
 
 logger = logging.getLogger(__name__)
 
+
 INITIAL_DF_TABLE_NAME = 'SPINE_DATA'
 FINAL_DF_TABLE_NAME = 'RAW_RESULTS'
 MODEL_RESULT_TABLE_NAME = 'MODEL_METADATA'
 
 
+    
 class ModelService:
     def __init__(
         self, 
@@ -37,13 +41,15 @@ class ModelService:
         level: Level, # level of granularity the dataset is aggregated to
         df: DataFrame, # dataset
         test_train_split: bool = True,
-        save_to_db: bool = True # save to database
+        save_to_db: bool = True, # save to database
+        save_to_cache: bool = False, # save to cache
     ):
         self.session: Session = session
         self.level: Level = level
         self.df: DataFrame = df
         self.test_train_split: bool = test_train_split
         self.save_to_db: bool = save_to_db
+        self.save_to_cache: bool = save_to_cache
 
         self.train_test_metadata: ModelStepResults = []
         self.prediction_metadata: ModelStepPredictionResults = []
@@ -54,16 +60,13 @@ class ModelService:
 
     def run(self):
         try:
-            if self.save_to_db:
-                self._save_df(INITIAL_DF_TABLE_NAME, self.df)
+            self._save_df(INITIAL_DF_TABLE_NAME, self.df)
             final_df = self._run()
-            if self.save_to_db:
-                self._save_df(FINAL_DF_TABLE_NAME, final_df)
-                self._save_model_metadata(ModelStatus.COMPLETED)                
+            self._save_df(FINAL_DF_TABLE_NAME, final_df)
+            self._save_model_metadata(ModelStatus.COMPLETED)                
         except Exception as e:
             logger.error(f"Error running model: {e}")
-            if self.save_to_db:
-                self._save_model_metadata(ModelStatus.FAILED, message=str(e))
+            self._save_model_metadata(ModelStatus.FAILED, message=str(e))
             raise e
 
     def _run(self) -> DataFrame:
@@ -119,10 +122,7 @@ class ModelService:
         step_logger = logger.getChild(step.name + "_TRAIN_TEST_SPLIT")
 
         # create training mask
-        training_mask = Series(True, index=df.index)
-        min_cohort_col = step.min_cohort_col
-        step_logger.info(f"Adding mask {min_cohort_col} >= {config.min_cohort_size}")
-        training_mask &= df[min_cohort_col] >= config.min_cohort_size
+        training_mask = self._get_training_mask(df, step, step_logger)
         
         # split train_df into train and test
         train_df, test_df = train_test_split(df[training_mask], test_size=0.1, random_state=42)
@@ -139,9 +139,6 @@ class ModelService:
             cat_cols=cat_cols,
             num_cols=num_cols,
             boolean_cols=boolean_cols,
-            # pred_col=step.pred_col,
-            # pred_lower_col=step.pred_lower_col,
-            # pred_upper_col=step.pred_upper_col,
         )
 
         # evaluate model
@@ -190,12 +187,10 @@ class ModelService:
         step_logger = logger.getChild(step.name + "_TRAIN_PREDICT")
 
         # create training mask
-        training_mask = Series(True, index=df.index)
-        min_cohort_col = step.min_cohort_col
-        step_logger.info(f"Adding mask {min_cohort_col} >= {config.min_cohort_size}")
-        training_mask &= df[min_cohort_col] >= config.min_cohort_size
+        training_mask = self._get_training_mask(df, step, step_logger)
         
         # create prediction mask
+        min_cohort_col = step.min_cohort_col
         prediction_mask = Series(True, index=df.index)
         pb_col = step.get_prediction_base_col(partition_item.partition, partition_item.value)
         step_logger.info(f"Adding mask {min_cohort_col} / {pb_col} < {config.prediction_base_threshold} or {min_cohort_col} is na or {pb_col} is na")
@@ -208,8 +203,6 @@ class ModelService:
                 | df[pb_col].isna()
             )
         
-        step_logger.info(f"Predicting on {len(prediction_mask)} rows")
-
         # run pipeline
         cat_cols = config.get_cat_cols(self.level)
         num_cols = config.get_num_cols(partition_item, step)
@@ -219,41 +212,48 @@ class ModelService:
         predict_df = cast(DataFrame, df[prediction_mask].copy())
         passthrough_df = cast(DataFrame, df[~prediction_mask].copy())
 
-        result_df, _ = run_pipeline(
-            train_df,
-            predict_df,
-            target_col=step.target_col,
-            cat_cols=cat_cols,
-            num_cols=num_cols,
-            boolean_cols=boolean_cols,
-            # pred_col=step.pred_col,
-            # pred_lower_col=step.pred_lower_col,
-            # pred_upper_col=step.pred_upper_col,
-        )
+        step_logger.info(f"Predicting on {len(predict_df)} rows")
 
-        # clean result df - only include consistent columns across all steps
-        # (num_cols vary between steps, so we exclude them from the saved results)
-        result_clean_df = cast(DataFrame, result_df[
-            config.get_key_names(self.level) + [
-                config.timestamp_col,
-                partition_item.partition.name,
-            ] + self.level.group_bys + [
-                PRED_YHAT_COL,
-                PRED_YHAT_LOWER_COL,
-                PRED_YHAT_UPPER_COL,
-            ]
-        ].copy())
+        # Handle case where there are no rows to predict
+        if len(predict_df) == 0:
+            step_logger.info("No rows require prediction - all data is baked")
+            model_status_col = f'{step.name}_MODEL'
+            passthrough_df[model_status_col] = training_mask.loc[passthrough_df.index].map({True: 'TRAINED', False: 'BYPASSED'})
+            output_df = passthrough_df
+            result_clean_df = DataFrame()  # Empty result since no predictions were made
+        else:
+            result_df, _ = run_pipeline(
+                train_df,
+                predict_df,
+                target_col=step.target_col,
+                cat_cols=cat_cols,
+                num_cols=num_cols,
+                boolean_cols=boolean_cols,
+            )
 
-        # construct output df to feed into next step
-        model_status_col = f'{step.name}_MODEL'
-        passthrough_df[model_status_col] = training_mask.loc[passthrough_df.index].map({True: 'TRAINED', False: 'BYPASSED'})
-        predict_df[model_status_col] = 'PREDICTED'
-        predict_df[step.target_col] = result_df[PRED_YHAT_COL].values # use .values to bypass index alignment
-        output_df = cast(DataFrame, concat([passthrough_df, predict_df]))
+            # clean result df - only include consistent columns across all steps
+            # (num_cols vary between steps, so we exclude them from the saved results)
+            result_clean_df = cast(DataFrame, result_df[
+                config.get_key_names(self.level) + [
+                    config.timestamp_col,
+                    partition_item.partition.name,
+                ] + self.level.group_bys + [
+                    PRED_YHAT_COL,
+                    PRED_YHAT_LOWER_COL,
+                    PRED_YHAT_UPPER_COL,
+                ]
+            ].copy())
+
+            # construct output df to feed into next step
+            model_status_col = f'{step.name}_MODEL'
+            passthrough_df[model_status_col] = training_mask.loc[passthrough_df.index].map({True: 'TRAINED', False: 'BYPASSED'})
+            predict_df[model_status_col] = 'PREDICTED'
+            predict_df[step.target_col] = result_df[PRED_YHAT_COL].values # use .values to bypass index alignment
+            output_df = cast(DataFrame, concat([passthrough_df, predict_df]))
 
         prediction_metadata = ModelStepPredictionMetadata(
             model_id=self.model_id,
-            prediction_rows=len(prediction_mask),
+            prediction_rows=len(predict_df),
             partition_item=partition_item,
             step=step,
             cat_cols=cat_cols,
@@ -273,6 +273,26 @@ class ModelService:
             )
 
         return prediction_metadata
+
+    def _get_training_mask(self, df: DataFrame, step: ModelStep, step_logger: logging.Logger) -> Series:
+        # check if target col has any null values and log which group_by combinations have nulls
+        null_mask: Series = cast(Series, df[step.target_col]).isna()
+        null_count = int(null_mask.sum())
+        if null_count > 0:
+            null_rows = cast(DataFrame, df[null_mask])
+            group_by_cols = self.level.group_bys
+            unique_nulls = cast(DataFrame, null_rows[group_by_cols])
+            overwrite_or_append_parquet(f'{self.level.name.upper()}_NULL_VALUES', unique_nulls, overwrite=True, csv=True)
+
+            raise ValueError(
+                f"Target column {step.target_col} has {null_count} null values in {len(unique_nulls)} unique {group_by_cols} combinations"
+            )
+        # create training mask (exclude rows with null target)
+        training_mask = Series(True, index=df.index)
+        training_mask &= df[step.min_cohort_col] >= config.min_cohort_size
+        training_mask &= ~null_mask
+        step_logger.info(f"Training mask: {training_mask.sum()} rows")
+        return training_mask
 
     def _log_result(self):
         from pprint import pformat
@@ -312,10 +332,25 @@ class ModelService:
             status=status,
             message=message,
         )
-        model_metadata.to_db(
-            session=self.session,
-            table_name=MODEL_RESULT_TABLE_NAME,
-        )
+        if self.save_to_db:
+            model_metadata.to_db(
+                session=self.session,
+                table_name=MODEL_RESULT_TABLE_NAME,
+            )
+        if self.save_to_cache:
+            # convert object to df
+            df = DataFrame([model_metadata.model_dump(mode='json')])
+            df.columns = df.columns.str.upper()
+            overwrite_or_append_parquet(MODEL_RESULT_TABLE_NAME, df)
 
-    def _save_df(self, table_name: str, final_df: DataFrame):
-        self.session.write_pandas(final_df.reset_index(drop=True), f'{self.level.name.upper()}_{table_name}', auto_create_table=True, overwrite=False)
+    def _save_df(self, table_name: str, df: DataFrame):
+        file_name = f'{self.level.name.upper()}_{table_name}'
+        if self.save_to_db:
+            self.session.write_pandas(
+                df.reset_index(drop=True), 
+                file_name, 
+                auto_create_table=True, 
+                overwrite=False
+            )
+        if self.save_to_cache:
+            overwrite_or_append_parquet(file_name, df)

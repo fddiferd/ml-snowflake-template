@@ -38,20 +38,21 @@ def main_level(level: Level, from_cache: bool = False, to_cache: bool = False):
         level, 
         df,
         test_train_split=True,
-        save_to_db=True,
+        save_to_db=False,
+        save_to_cache=to_cache,
     )
     model_service.run()
         
 
 def main(from_cache: bool = False, to_cache: bool = False):
     for level in Level:
-        if level == Level.BRAND:
-            continue
-        main_level(
-            level, 
-            from_cache, 
-            to_cache
-        )
+        if level == Level.TRAFFIC_SOURCE:
+            main_level(
+                level, 
+                from_cache, 
+                to_cache
+            )
+            
 
 
 if __name__ == "__main__":
