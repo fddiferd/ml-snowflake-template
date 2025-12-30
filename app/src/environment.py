@@ -45,6 +45,7 @@ class Environment:
     def __init__(self):
         self.target: Target = Target(_get_var("TARGET").upper())
         self.developer: str | None = _get_optional_var("DEVELOPER")
+        self.master_project_path: str = _get_optional_var("MASTER_PROJECT_PATH") or "GitHub"
 
         self._validate_developer()
         self._log()
