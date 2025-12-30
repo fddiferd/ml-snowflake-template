@@ -1,4 +1,4 @@
-FRAUD_DISPUTES_QUERY = """
+FRAUD_DISPUTE_QUERY = """
     select
         "Capture Modification Merchant Reference" as ref_txn_id,
         -- merchant reference format (005928639 OR TXN_5928639)
@@ -14,7 +14,9 @@ FRAUD_DISPUTES_QUERY = """
             when a."Record Type" = 'NotificationOfFraud' then 'fraud'
         end as type,
         a."Merchant Account" as merchant_account,
+        a."Payment Method" as card_network,
         tr.brand_slug,
+        tr.sku_type_slug,
         tr.channel_slug,
         ts.short_name as traffic_source_short_name,
         tr.bin,
@@ -32,14 +34,14 @@ FRAUD_DISPUTES_QUERY = """
     left join bi_layer_db.prod.dim_plans p on
         p.id = tr.plan_id
         
-    where "Record Date" >='2025-01-01'
+    where convert_timezone('America/Los_Angeles', "Record Date") >= '{date}'
     and a."Merchant Account" <> 'ClassmatesECOM'
     and not a."RDR"
     and a."Record Type" in ('Chargeback', 'NotificationOfFraud')
     group by all
 """
 
-SETTLED_QUERY = """
+SETTLEMENT_QUERY = """
     select
         "Merchant Reference" as ref_txn_id,
         -- merchant reference format (005928639 OR TXN_5928639)
@@ -50,9 +52,11 @@ SETTLED_QUERY = """
         )::int as txn_id,
 
         'adyen' as processor,
-        'settled' as type,
+        'settlement' as type,
         a."Merchant Account" as merchant_account,
+        a."Payment Method" as card_network,
         tr.brand_slug,
+        tr.sku_type_slug,
         tr.channel_slug,
         ts.short_name as traffic_source_short_name,
         tr.bin,
@@ -70,13 +74,13 @@ SETTLED_QUERY = """
     left join bi_layer_db.prod.dim_plans p on
         p.id = tr.plan_id
         
-    where "Creation Date" >='2025-01-01'
+    where convert_timezone('America/Los_Angeles', "Creation Date") >= '{date}'
     and a."Merchant Account" <> 'ClassmatesECOM'
     and a."Record Type" in ('Settled')
     group by all
 """
 
 queries = [
-    FRAUD_DISPUTES_QUERY,
-    SETTLED_QUERY,
+    FRAUD_DISPUTE_QUERY,
+    SETTLEMENT_QUERY,
 ]
