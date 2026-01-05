@@ -274,23 +274,20 @@ class ModelService:
 
         return prediction_metadata
 
-    def _get_training_mask(self, df: DataFrame, step: ModelStep, step_logger: logging.Logger) -> Series:
-        # check if target col has any null values and log which group_by combinations have nulls
-        null_mask: Series = cast(Series, df[step.target_col]).isna()
-        null_count = int(null_mask.sum())
-        if null_count > 0:
-            null_rows = cast(DataFrame, df[null_mask])
-            group_by_cols = self.level.group_bys
-            unique_nulls = cast(DataFrame, null_rows[group_by_cols])
-            overwrite_or_append_parquet(f'{self.level.name.upper()}_NULL_VALUES', unique_nulls, overwrite=True, csv=True)
-
-            raise ValueError(
-                f"Target column {step.target_col} has {null_count} null values in {len(unique_nulls)} unique {group_by_cols} combinations"
-            )
-        # create training mask (exclude rows with null target)
+    def _get_training_mask(self, df: DataFrame, step: ModelStep, step_logger: logging.Logger) -> Series:       
+        # create training mask
         training_mask = Series(True, index=df.index)
         training_mask &= df[step.min_cohort_col] >= config.min_cohort_size
-        training_mask &= ~null_mask
+        # check for nulls
+        null_mask: Series = cast(Series, df[step.target_col]).isna()
+        training_null_df = cast(DataFrame, df[null_mask & training_mask])
+        if len(training_null_df) > 0:
+            group_by_cols = self.level.group_bys
+            overwrite_or_append_parquet(f'{self.level.name.upper()}_NULL_VALUES', training_null_df, overwrite=True, csv=True)
+            logger.warning(
+                f"Target column {step.target_col} has {len(training_null_df)} null values in {len(training_null_df.groupby(group_by_cols).size())} unique {group_by_cols} combinations"
+            )
+            training_mask &= ~null_mask
         step_logger.info(f"Training mask: {training_mask.sum()} rows")
         return training_mask
 

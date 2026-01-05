@@ -97,12 +97,9 @@ class Service:
                 self.df, 
                 session.sql(query_formatted).to_pandas()
             ])
-        # clean data
+        # clean card network field
         self.df = cast(DataFrame, self.df)
         self.df['CARD_NETWORK'] = self.df['CARD_NETWORK'].str.lower().str.replace(" ", "")
-        # remove paypal_account
-        self.df = self.df[self.df['CARD_NETWORK'] != 'paypal_account']
-        self.df = cast(DataFrame, self.df.reset_index(drop=True))
         # alias 'mc' to 'mastercard'
         self.df['CARD_NETWORK'] = self.df['CARD_NETWORK'].replace('mc', 'mastercard')
         # save to cache

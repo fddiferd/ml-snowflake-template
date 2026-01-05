@@ -29,6 +29,7 @@ DISPUTE_QUERY = """
     where convert_timezone('America/Los_Angeles', bt.receiveddate) >= '{date}'
     and bt.merchantaccountid <> 'classmates_instant'
     and bt.kind = 'chargeback'
+    and bt.transaction:paymentInstrumentSubtype::string <> 'paypal_account'
     group by all
 """
 
@@ -74,7 +75,7 @@ SETTLEMENT_QUERY = """
         'braintree' as processor,
         'settlement' as type,
         bt.merchantaccountid as merchant_account,
-        bt.paymentreceipt:cardType::string as card_network,
+        po.card_network,
         tr.brand_slug,
         tr.sku_type_slug,
         tr.channel_slug,
@@ -87,6 +88,9 @@ SETTLEMENT_QUERY = """
     left join bi_layer_db.prod.transactions tr on
         tr.payment_processor_id = bt.id
 
+    left join bi_layer_db.prod.payment_options po on
+        po.id = tr.payment_option_id
+
     left join bi_layer_db.prod.dim_traffic_sources ts on
         ts.id = tr.traffic_source_id
 
@@ -96,6 +100,7 @@ SETTLEMENT_QUERY = """
     where convert_timezone('America/Los_Angeles', bt.createdat) >= '{date}'
     and bt.merchantaccountid <> 'classmates_instant'
     and bt.type = 'sale'
+    and value:paymentInstrumentType <> 'paypal_account'
     group by all
 """
 

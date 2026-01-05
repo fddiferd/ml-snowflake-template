@@ -19,8 +19,11 @@ def overwrite_or_append_parquet(file_name: str, df: DataFrame, overwrite: bool =
         existing_df = read_parquet(file_path)
         combined_df = concat([existing_df, df], ignore_index=True)
         if csv:
-            combined_df.to_csv(file_path)
+            combined_df.to_csv(file_path, index=False)
         else:
             combined_df.to_parquet(file_path)
     else:
-        df.to_parquet(file_path)
+        if csv:
+            df.to_csv(file_path, index=False)
+        else:
+            df.to_parquet(file_path)
