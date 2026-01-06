@@ -1,16 +1,15 @@
 import logging
 import uuid
-import os
 from sklearn.model_selection import train_test_split
 from datetime import datetime, timezone
 from typing import cast
-from pandas import DataFrame, Series, concat, read_parquet
-from snowflake.snowpark import Session
+from pandas import DataFrame, Series, concat
 
 from src.pipeline.xgboost import run_pipeline, PRED_YHAT_COL, PRED_YHAT_LOWER_COL, PRED_YHAT_UPPER_COL
 from src.utils.model import evaluate_model
+from src.writers import Writer
 
-from projects.pltv.data.utils import overwrite_or_append_parquet
+from projects.pltv.model.result_collector import ResultCollector
 from projects.pltv import (
     config, 
     PartitionItem,
@@ -28,45 +27,61 @@ from projects.pltv import (
 logger = logging.getLogger(__name__)
 
 
+# Table name constants
 INITIAL_DF_TABLE_NAME = 'SPINE_DATA'
 FINAL_DF_TABLE_NAME = 'RAW_RESULTS'
 MODEL_RESULT_TABLE_NAME = 'MODEL_METADATA'
-
+TEST_TRAIN_SPLIT_METADATA_TABLE_NAME = 'TEST_TRAIN_SPLIT_METADATA'
+TEST_TRAIN_SPLIT_FEATURE_IMPORTANCES_TABLE_NAME = 'TEST_TRAIN_SPLIT_FEATURE_IMPORTANCES'
+TRAIN_PREDICT_METADATA_TABLE_NAME = 'TRAIN_PREDICT_METADATA'
+TRAIN_PREDICT_RESULTS_TABLE_NAME = 'TRAIN_PREDICT_RESULTS'
 
     
 class ModelService:
     def __init__(
         self, 
-        session: Session,
-        level: Level, # level of granularity the dataset is aggregated to
-        df: DataFrame, # dataset
+        level: Level,
+        df: DataFrame,
+        writer: Writer | None = None,
         test_train_split: bool = True,
-        save_to_db: bool = True, # save to database
-        save_to_cache: bool = False, # save to cache
     ):
-        self.session: Session = session
+        """Initialize the ModelService.
+        
+        Args:
+            level: Level of granularity the dataset is aggregated to
+            df: The dataset to run the model on
+            writer: Writer to use for saving results. If None, no results are saved.
+            test_train_split: Whether to run train/test split evaluation
+        """
         self.level: Level = level
         self.df: DataFrame = df
+        self.writer: Writer | None = writer
         self.test_train_split: bool = test_train_split
-        self.save_to_db: bool = save_to_db
-        self.save_to_cache: bool = save_to_cache
 
         self.train_test_metadata: ModelStepResults = []
         self.prediction_metadata: ModelStepPredictionResults = []
 
         self.model_id: str = str(uuid.uuid4())
         self.model_created_at: datetime = datetime.now(timezone.utc)
-
+        
+        # Result collector for batched writes
+        self._collector = ResultCollector()
 
     def run(self):
+        """Run the model pipeline and write results."""
         try:
-            self._save_df(INITIAL_DF_TABLE_NAME, self.df)
+            self._add_df_to_collector(INITIAL_DF_TABLE_NAME, self.df)
             final_df = self._run()
-            self._save_df(FINAL_DF_TABLE_NAME, final_df)
-            self._save_model_metadata(ModelStatus.COMPLETED)                
+            self._add_df_to_collector(FINAL_DF_TABLE_NAME, final_df)
+            self._add_model_metadata_to_collector(ModelStatus.COMPLETED)
+            
+            # Flush all collected results at the end
+            self._flush_results()
+                            
         except Exception as e:
             logger.error(f"Error running model: {e}")
-            self._save_model_metadata(ModelStatus.FAILED, message=str(e))
+            self._add_model_metadata_to_collector(ModelStatus.FAILED, message=str(e))
+            self._flush_results()
             raise e
 
     def _run(self) -> DataFrame:
@@ -93,7 +108,6 @@ class ModelService:
 
         return cast(DataFrame, final_df)
 
-
     def _run_step(
         self,
         partition_item: PartitionItem, 
@@ -106,9 +120,29 @@ class ModelService:
         if self.test_train_split:
             train_metadata = self._run_train_test_split(partition_item, step, df)
             self.train_test_metadata.append(train_metadata)
+            
+            # Add train/test split results to collector
+            self._collector.add(
+                f'{self.level.name}_{TEST_TRAIN_SPLIT_METADATA_TABLE_NAME}',
+                train_metadata.to_metadata_dataframe()
+            )
+            self._collector.add(
+                f'{self.level.name}_{TEST_TRAIN_SPLIT_FEATURE_IMPORTANCES_TABLE_NAME}',
+                train_metadata.to_feature_importances_dataframe()
+            )
 
         prediction_metadata = self._run_train_predict(partition_item, step, df)        
         self.prediction_metadata.append(prediction_metadata)
+        
+        # Add prediction results to collector
+        self._collector.add(
+            f'{self.level.name}_{TRAIN_PREDICT_METADATA_TABLE_NAME}',
+            prediction_metadata.to_metadata_dataframe()
+        )
+        self._collector.add(
+            f'{self.level.name}_{TRAIN_PREDICT_RESULTS_TABLE_NAME}',
+            prediction_metadata.to_prediction_results_dataframe()
+        )
 
         return prediction_metadata.output_df
     
@@ -150,7 +184,7 @@ class ModelService:
 
         # get feature importance
         feature_importances = trained_model.get_feature_importance()
-        step_logger.info(f"Feature importances: {feature_importances.to_dict()}")
+        step_logger.debug(f"Feature importances: {feature_importances.to_dict()}")
 
         metadata = ModelStepMetadata(
             model_id=self.model_id,
@@ -165,15 +199,6 @@ class ModelService:
             boolean_cols=boolean_cols,
             model=trained_model
         )
-
-        if self.save_to_db:
-            base_table_name = f'TEST_TRAIN_SPLIT'
-            metadata.to_db(
-                session=self.session,
-                level_name=self.level.name,
-                metadata_table_name=f'{base_table_name}_METADATA',
-                feature_importances_table_name=f'{base_table_name}_FEATURE_IMPORTANCES'
-            )
 
         return metadata
 
@@ -243,12 +268,26 @@ class ModelService:
                     PRED_YHAT_UPPER_COL,
                 ]
             ].copy())
+            # Add the base column to be able to compute from the rates / avg billings
+            prediction_base_col = step.get_prediction_base_col(partition_item.partition, partition_item.value)
+            result_clean_df['PREDICTION_BASE_COL'] = predict_df[prediction_base_col].values # use .values to bypass index alignment
 
-            # construct output df to feed into next step
+            # -- Construct output df to feed into next step --
+            # Add Model Status Column
             model_status_col = f'{step.name}_MODEL'
             passthrough_df[model_status_col] = training_mask.loc[passthrough_df.index].map({True: 'TRAINED', False: 'BYPASSED'})
             predict_df[model_status_col] = 'PREDICTED'
+            # Overwrite the target column with the predicted values
             predict_df[step.target_col] = result_df[PRED_YHAT_COL].values # use .values to bypass index alignment
+            # Overwrite the rate target survived column with the predicted values
+            if step.rate_target_survived_col is not None:
+                # This is essential for the first rebill rate and promo activation rate steps
+                predict_df[step.rate_target_survived_col] = (
+                    # multiply the prediction by the base col
+                    result_df[PRED_YHAT_COL].values # use .values to bypass index alignment
+                    * predict_df[prediction_base_col]
+                )
+            # Concatenate the passthrough and predict dataframes
             output_df = cast(DataFrame, concat([passthrough_df, predict_df]))
 
         prediction_metadata = ModelStepPredictionMetadata(
@@ -263,15 +302,6 @@ class ModelService:
             result_df=result_clean_df
         )
 
-        if self.save_to_db:
-            base_table_name = f'TRAIN_PREDICT'
-            prediction_metadata.to_db(
-                session=self.session,
-                level_name=self.level.name,
-                metadata_table_name=f'{base_table_name}_METADATA',
-                prediction_results_table_name=f'{base_table_name}_RESULTS'
-            )
-
         return prediction_metadata
 
     def _get_training_mask(self, df: DataFrame, step: ModelStep, step_logger: logging.Logger) -> Series:       
@@ -283,7 +313,8 @@ class ModelService:
         training_null_df = cast(DataFrame, df[null_mask & training_mask])
         if len(training_null_df) > 0:
             group_by_cols = self.level.group_bys
-            overwrite_or_append_parquet(f'{self.level.name.upper()}_NULL_VALUES', training_null_df, overwrite=True, csv=True)
+            # Add null values to collector for debugging
+            self._collector.add(f'{self.level.name.upper()}_NULL_VALUES', training_null_df)
             logger.warning(
                 f"Target column {step.target_col} has {len(training_null_df)} null values in {len(training_null_df.groupby(group_by_cols).size())} unique {group_by_cols} combinations"
             )
@@ -320,7 +351,7 @@ class ModelService:
                 f"  - boolean cols: {metadata.boolean_cols}\n"
             )
 
-    def _save_model_metadata(self, status: ModelStatus, message: str | None = None):
+    def _add_model_metadata_to_collector(self, status: ModelStatus, message: str | None = None):
         model_metadata = ModelMetadata(
             id=self.model_id,
             created_at=self.model_created_at,
@@ -329,25 +360,17 @@ class ModelService:
             status=status,
             message=message,
         )
-        if self.save_to_db:
-            model_metadata.to_db(
-                session=self.session,
-                table_name=MODEL_RESULT_TABLE_NAME,
-            )
-        if self.save_to_cache:
-            # convert object to df
-            df = DataFrame([model_metadata.model_dump(mode='json')])
-            df.columns = df.columns.str.upper()
-            overwrite_or_append_parquet(MODEL_RESULT_TABLE_NAME, df)
+        self._collector.add(MODEL_RESULT_TABLE_NAME, model_metadata.to_dataframe())
 
-    def _save_df(self, table_name: str, df: DataFrame):
+    def _add_df_to_collector(self, table_name: str, df: DataFrame):
         file_name = f'{self.level.name.upper()}_{table_name}'
-        if self.save_to_db:
-            self.session.write_pandas(
-                df.reset_index(drop=True), 
-                file_name, 
-                auto_create_table=True, 
-                overwrite=False
-            )
-        if self.save_to_cache:
-            overwrite_or_append_parquet(file_name, df)
+        self._collector.add(file_name, df.reset_index(drop=True))
+    
+    def _flush_results(self):
+        """Flush all collected results to the writer."""
+        if self.writer is None:
+            logger.info("No writer configured, skipping result flush")
+            return
+        
+        logger.info(f"Flushing {self._collector.pending_count} result sets to writer")
+        self._collector.flush(self.writer)

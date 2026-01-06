@@ -97,8 +97,8 @@ class ModelStep(Enum):
     GROSS_ADDS_CANCELED_DAY_THREE_RATE = 1
     GROSS_ADDS_CANCELED_DAY_SEVEN_RATE = 2
     # Retention Steps
-    PROMO_ACTIVATION_RATE = 3
-    FIRST_REBILL_RATE = 4
+    PROMO_ACTIVATION_RATE_EXCL_RETRIES = 3
+    FIRST_REBILL_RATE_EXCL_RETRIES = 4
     # Billing Steps
     AVG_NET_BILLINGS_30_DAYS = 5
     AVG_NET_BILLINGS_60_DAYS = 6
@@ -112,12 +112,28 @@ class ModelStep(Enum):
         return self.name.upper()
 
     @property
+    def rate_target_survived_col(self) -> str | None:
+        match self:
+            case ModelStep.GROSS_ADDS_CANCELED_DAY_THREE_RATE:
+                return 'gross_adds_canceled_day_three'.upper()
+            case ModelStep.GROSS_ADDS_CANCELED_DAY_SEVEN_RATE:
+                return 'gross_adds_canceled_day_seven'.upper()
+            case ModelStep.PROMO_ACTIVATION_RATE_EXCL_RETRIES:
+                return 'survived_promo_activations_excl_retries'.upper()
+            case ModelStep.FIRST_REBILL_RATE_EXCL_RETRIES:
+                return 'survived_first_rebills_excl_retries'.upper()
+            case _:
+                if 'NET_BILLINGS' in self.name: # for billing steps, we don't have a rate target survived column
+                    return None
+                raise ValueError(f"Model Step {self.name} does not have a rate target survived column")
+
+    @property
     def min_cohort_col(self) -> str:
         """Returns the column name for the previous step min cohort."""
         match self:
-            case ModelStep.PROMO_ACTIVATION_RATE:
+            case ModelStep.PROMO_ACTIVATION_RATE_EXCL_RETRIES:
                 return 'eligible_promo_activations'.upper()
-            case ModelStep.FIRST_REBILL_RATE:
+            case ModelStep.FIRST_REBILL_RATE_EXCL_RETRIES:
                 return 'eligible_first_rebills'.upper()
             case _:
                 return f'gross_adds_created_over_{self._days_ago_col}_days_ago'.upper()
@@ -130,7 +146,7 @@ class ModelStep(Enum):
     def is_step_in_partition(self, partition: Partition, partition_value: Any) -> bool:
         """Ensure that when PLAN__IS_PROMO is False, the step is skipped"""
         match self:
-            case ModelStep.PROMO_ACTIVATION_RATE:
+            case ModelStep.PROMO_ACTIVATION_RATE_EXCL_RETRIES:
                 if partition == Partition.PLAN__IS_PROMO and partition_value == False:
                     return False
                 return True
@@ -141,9 +157,9 @@ class ModelStep(Enum):
         """For prediction, we need to compare the previous step col / base col to see if its greater than a certain value to determine if its BAKED"""
         gross_adds_col = 'gross_adds'.upper()
         match self:
-            case ModelStep.FIRST_REBILL_RATE:
+            case ModelStep.FIRST_REBILL_RATE_EXCL_RETRIES:
                 if partition == Partition.PLAN__IS_PROMO and partition_value == True:
-                    return 'eligible_promo_activations'.upper()
+                    return 'survived_promo_activations_excl_retries'.upper()
                 return gross_adds_col
             case _:
                 return gross_adds_col

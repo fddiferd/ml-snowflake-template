@@ -73,10 +73,12 @@ def get_session(project: Project) -> Session:
         "schema": environment.schema_name,
     }).create()
 
-    # create or replace database and schema
-    session.sql(f"CREATE OR REPLACE DATABASE {project.database_name}").collect()
-    session.sql(f"CREATE OR REPLACE SCHEMA {environment.schema_name}").collect()
-    logger.info(f"Created or replaced database {project.database_name} and schema {environment.schema_name}")
+    # create database and schema if they don't exist
+    session.sql(f"CREATE DATABASE IF NOT EXISTS {project.database_name}").collect()
+    session.sql(f"CREATE SCHEMA IF NOT EXISTS {environment.schema_name}").collect()
+    session.sql(f"USE DATABASE {project.database_name}").collect()
+    session.sql(f"USE SCHEMA {environment.schema_name}").collect()
+    logger.info(f"Using database {project.database_name} and schema {environment.schema_name}")
 
     logger.info(f"Connected to Snowflake for project {project.value}")
     logger.info(f"  Account: {session.get_current_account()}")

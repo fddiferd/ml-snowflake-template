@@ -2,12 +2,9 @@ from datetime import datetime, timezone
 import hashlib
 from enum import Enum
 import logging
-import json
 from pydantic import BaseModel, Field, model_validator, ConfigDict, computed_field
 from typing import Callable, Any, TypeAlias
 from pandas import DataFrame
-
-from snowflake.snowpark import Session
 
 from projects.pltv.core.enums import ModelStep, ModelSteps, TimeHorizons, Partitions, Partition, Levels, Level
 from src.base_models.evaluation import EvaluationResult
@@ -119,19 +116,12 @@ class ModelMetadata(BaseModel):
     def run_time(self) -> float | None:
         return (self.completed_at - self.created_at).total_seconds() if self.completed_at else None
 
-    def to_db(
-        self, 
-        session: Session, 
-        table_name: str, 
-    ) -> None:
-        logger.info(f"Saving model result for level {self.level_name}")
+    def to_dataframe(self) -> DataFrame:
+        """Convert model metadata to a DataFrame for writing."""
         data = self.model_dump(mode='json')
         df = DataFrame([data]).reset_index(drop=True)
         df.columns = df.columns.str.upper()
-        if len(df) > 0:
-            session.write_pandas(df, table_name, auto_create_table=True, overwrite=False)
-        else:
-            logger.warning(f"No data to save for level {self.level_name}")
+        return df
 
 class ModelStepBase(BaseModel):
     """Base model for model step metadata and prediction metadata"""
@@ -157,14 +147,8 @@ class ModelStepMetadata(ModelStepBase):
     feature_importances: DataFrame
     model: XGBoostRegressorWrapper
 
-    def to_db(
-        self, 
-        session: Session,
-        level_name: str,
-        metadata_table_name: str, 
-        feature_importances_table_name: str
-    ) -> None:
-        logger.info(f"Saving model step result {self.step.name} for level {level_name}")
+    def to_metadata_dataframe(self) -> DataFrame:
+        """Convert step metadata to a DataFrame for writing."""
         data = self.model_dump(mode='json', exclude={'model', 'feature_importances'})
 
         # extract step and partition
@@ -175,19 +159,14 @@ class ModelStepMetadata(ModelStepBase):
 
         df = DataFrame([data]).reset_index(drop=True)
         df.columns = df.columns.str.upper()
-        if len(df) > 0:
-            session.write_pandas(df, f'{level_name}_{metadata_table_name}', auto_create_table=True, overwrite=False)
-        else:
-            logger.warning(f"No data to save for level {level_name} and metadata table {metadata_table_name}")
+        return df
 
+    def to_feature_importances_dataframe(self) -> DataFrame:
+        """Convert feature importances to a DataFrame for writing."""
         feature_importances_df = self.feature_importances.copy().reset_index(drop=True)
         feature_importances_df['id'] = self.id
         feature_importances_df.columns = feature_importances_df.columns.str.upper()
-
-        if len(feature_importances_df) > 0:
-            session.write_pandas(feature_importances_df, f'{level_name}_{feature_importances_table_name}', auto_create_table=True, overwrite=False)
-        else:
-            logger.warning(f"No data to save for level {level_name} and feature importances table {feature_importances_table_name}")
+        return feature_importances_df
 
 ModelStepResults: TypeAlias = list[ModelStepMetadata]
 
@@ -197,14 +176,8 @@ class ModelStepPredictionMetadata(ModelStepBase):
     output_df: DataFrame
     result_df: DataFrame
 
-    def to_db(
-        self, 
-        session: Session, 
-        level_name: str,
-        metadata_table_name: str, 
-        prediction_results_table_name: str
-    ) -> None:
-        logger.info(f"Saving model step prediction result {self.step.name}  for level {level_name}")
+    def to_metadata_dataframe(self) -> DataFrame:
+        """Convert prediction metadata to a DataFrame for writing."""
         data = self.model_dump(mode='json', exclude={'output_df', 'result_df'})
 
         # extract step and partition
@@ -214,18 +187,15 @@ class ModelStepPredictionMetadata(ModelStepBase):
 
         df = DataFrame([data]).reset_index(drop=True)
         df.columns = df.columns.str.upper()
-        if len(df) > 0:
-            session.write_pandas(df, f'{level_name}_{metadata_table_name}', auto_create_table=True, overwrite=False)
-        else:
-            logger.warning(f"No data to save for level {level_name} and metadata table {metadata_table_name}")
+        return df
 
+    def to_prediction_results_dataframe(self) -> DataFrame:
+        """Convert prediction results to a DataFrame for writing."""
         prediction_results_df = self.result_df.copy().reset_index(drop=True)
-        prediction_results_df['id'] = self.id
-        prediction_results_df.columns = prediction_results_df.columns.str.upper()
 
-        if len(prediction_results_df) > 0:
-            session.write_pandas(prediction_results_df, f'{level_name}_{prediction_results_table_name}', auto_create_table=True, overwrite=False)
-        else:
-            logger.warning(f"No data to save for level {level_name} and prediction results table {prediction_results_table_name}")
+        prediction_results_df['id'] = self.id
+        
+        prediction_results_df.columns = prediction_results_df.columns.str.upper()
+        return prediction_results_df
 
 ModelStepPredictionResults: TypeAlias = list[ModelStepPredictionMetadata]

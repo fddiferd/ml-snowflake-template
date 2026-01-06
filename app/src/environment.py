@@ -46,6 +46,7 @@ class Environment:
         self.target: Target = Target(_get_var("TARGET").upper())
         self.developer: str | None = _get_optional_var("DEVELOPER")
         self.master_project_path: str = _get_optional_var("MASTER_PROJECT_PATH") or "GitHub"
+        self.use_cache: bool = self._get_use_cache()
 
         self._validate_developer()
         self._log()
@@ -65,5 +66,12 @@ class Environment:
         if self.target.is_dev:
             logger.info(f"Developer: {self.developer}")
         logger.info(f"Schema Name: {self.schema_name}")
+        logger.info(f"Use Cache: {self.use_cache}")
+
+    def _get_use_cache(self) -> bool:
+        use_cache_var = _get_optional_var("USE_CACHE")
+        if use_cache_var is None:
+            return False
+        return use_cache_var.upper() == "TRUE"
 
 environment = Environment()

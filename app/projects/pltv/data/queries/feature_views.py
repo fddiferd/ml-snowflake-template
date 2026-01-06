@@ -23,16 +23,18 @@ select
     {group_bys}
     {partitions}
     -- metrics
-    sum(eligible_promo_activations) as eligible_promo_activations,
-    sum(eligible_first_rebills) as eligible_first_rebills,
-    div0(
+    coalesce(sum(eligible_promo_activations), 0) as eligible_promo_activations,
+    coalesce(sum(survived_promo_activations_excl_retries), 0) as survived_promo_activations_excl_retries,
+    coalesce(div0(
         sum(survived_promo_activations_excl_retries), 
         sum(eligible_promo_activations)
-    )  as promo_activation_rate,
-    div0(
+    ), 0)  as promo_activation_rate_excl_retries,
+    coalesce(sum(eligible_first_rebills), 0) as eligible_first_rebills,
+    coalesce(sum(survived_first_rebills_excl_retries), 0) as survived_first_rebills_excl_retries,
+    coalesce(div0(
         sum(survived_first_rebills_excl_retries), 
         sum(eligible_first_rebills)
-    ) as first_rebill_rate,   
+    ), 0) as first_rebill_rate_excl_retries,   
 from retention_metrics
 group by all
 """

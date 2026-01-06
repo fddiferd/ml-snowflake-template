@@ -49,6 +49,7 @@ GRANT ROLE IDENTIFIER($MY_ROLE_NAME) TO USER IDENTIFIER($MY_USER_NAME);
 -- 7. Network Policy (NOTE identifier does not work with network policy name)
 CREATE OR REPLACE NETWORK POLICY ML_LAYER_NETWORK_POLICY
     ALLOWED_IP_LIST = (
+        '98.168.72.86', -- Office
         '34.94.131.9', --VPN
         '99.39.71.201', -- donato home 1
         '66.215.109.100', -- donato home 2

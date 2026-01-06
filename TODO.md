@@ -1,1 +1,0 @@
-traffic source level has traning rows for promo activation that have greater than eligible but is the target is empty

@@ -6,19 +6,22 @@ Predicts average net billings across time horizons (30-730 days) using XGBoost.
 Data is partitioned by promo/non-promo plans and grouped by brand/sku/channel.
 
 Usage:
-    from projects.pltv import Level, config, get_session, get_df, clean_df, ModelService
+    from projects.pltv import Level, get_session, clean_df, DatasetLoader, ModelService
+    from src.writers import create_writer
     
     session = get_session()
-    df = get_df(session, Level.CHANNEL)
+    writer = create_writer("parquet", folder_path="app/projects/pltv/data/cache")
+    loader = DatasetLoader(session, writer, cache_path="app/projects/pltv/data/cache")
+    df = loader.load(Level.CHANNEL)
     clean_df(df)
-    ModelService(level, df).run()
+    ModelService(Level.CHANNEL, df, writer).run()
 
 Exports:
     Session:    get_session
     Config:     config, fv_configs
     Types:      Config, Partition, PartitionItem, FeatureViewConfig
     Enums:      TimeHorizon, ModelStep
-    Data:       get_df, get_df_from_cache, clean_df
+    Data:       DatasetLoader, get_df, get_df_from_cache, clean_df
     Model:      ModelService
 """
 
@@ -37,6 +40,7 @@ if TYPE_CHECKING:
     from projects.pltv.data.dataset import get_df as get_df
     from projects.pltv.data.dataset import get_df_from_cache as get_df_from_cache
     from projects.pltv.data.feature_engineering import clean_df as clean_df
+    from projects.pltv.data.loader import DatasetLoader as DatasetLoader
     from projects.pltv.model.model_service import ModelService as ModelService
 
 from projects import Project
@@ -85,6 +89,7 @@ _lazy_imports = {
     "get_df": ("projects.pltv.data.dataset", "get_df"),
     "get_df_from_cache": ("projects.pltv.data.dataset", "get_df_from_cache"),
     "clean_df": ("projects.pltv.data.feature_engineering", "clean_df"),
+    "DatasetLoader": ("projects.pltv.data.loader", "DatasetLoader"),
     # Model service
     "ModelService": ("projects.pltv.model.model_service", "ModelService"),
 }
@@ -127,6 +132,7 @@ __all__ = [
     "ModelMetadata",
     "ModelStatus",
     # Data functions (lazy loaded)
+    "DatasetLoader",
     "get_df",
     "get_df_from_cache", 
     "clean_df",
