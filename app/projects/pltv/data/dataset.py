@@ -12,9 +12,15 @@ from snowflake.snowpark.dataframe import DataFrame
 from src.services.feature_store_service import FeatureStoreService
 
 from projects import Project
-from projects.pltv.core.config import config, fv_configs
+from projects.pltv.config import (
+    Level,
+    TIMESTAMP_COL,
+    VERSION_NUMBER,
+    partition_sql_fields,
+    fv_configs,
+    get_join_keys,
+)
 from projects.pltv.data.queries.spine import QUERY as SPINE_QUERY
-from projects.pltv.core.enums import parition_sql_fields, Level
 from projects.pltv.data.utils import get_file_path
 
 
@@ -26,37 +32,36 @@ def get_dataset(session: Session, level: Level) -> DataFrame:
     svc = FeatureStoreService(
         session, 
         name=Project.PLTV.name, 
-        timestamp_col=config.timestamp_col
+        timestamp_col=TIMESTAMP_COL
     )
     # spine
-    spine_df = session.sql(
-        SPINE_QUERY.format(
-            timestamp_col=config.timestamp_col,
-            group_bys=level.sql_fields,
-            partitions=parition_sql_fields,
-            keys=config.get_keys_sql_fields(level)
-        )
+    spine_sql = SPINE_QUERY.format(
+        timestamp_col=TIMESTAMP_COL,
+        group_bys=level.sql_fields,
+        partitions=partition_sql_fields,
     )
+    logger.debug(f"Spine SQL: {spine_sql}")
+    spine_df = session.sql(spine_sql)
     svc.set_spine(spine_df)
     # entity
     svc.set_entity(
-        join_keys=config.get_join_keys(level), 
+        join_keys=get_join_keys(level), 
         name=f'{level.name}_ENTITY',
         recreate=True
     )
     # feature views
     for feature_view_config in fv_configs:
         logger.info(f'Setting feature view {feature_view_config.name} for level {level.name}')
-        feature_df = session.sql(
-            feature_view_config.query.format(
-                timestamp_col=config.timestamp_col,
-                group_bys=level.sql_fields,
-                partitions=parition_sql_fields
-            )
+        feature_sql = feature_view_config.query.format(
+            timestamp_col=TIMESTAMP_COL,
+            group_bys=level.sql_fields,
+            partitions=partition_sql_fields
         )
+        logger.debug(f"Feature SQL: {feature_sql}")
+        feature_df = session.sql(feature_sql)
         svc.set_feature_view(
             feature_df, 
-            config.version_number, 
+            VERSION_NUMBER, 
             name=f'{level.name}_{feature_view_config.name}',
         )
     # get dataset

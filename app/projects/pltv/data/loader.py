@@ -5,9 +5,8 @@ import logging
 import pandas as pd
 from snowflake.snowpark import Session
 
-from projects.pltv.core.enums import Level
+from projects.pltv.config import Level, CACHE_PATH
 from projects.pltv.data.dataset import get_dataset
-from projects.pltv.data.utils import CACHE_PATH
 from src.environment import environment as env
 
 

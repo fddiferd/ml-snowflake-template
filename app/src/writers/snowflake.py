@@ -24,6 +24,10 @@ class SnowflakeWriter:
         df = data.reset_index(drop=True)
         df.columns = df.columns.str.upper()
 
+        # Convert datetime columns to ISO strings for proper Snowflake DATE handling
+        for col in df.select_dtypes(include=['datetime64']).columns:
+            df[col] = df[col].dt.strftime('%Y-%m-%d')
+
         self.session.write_pandas(
             df,
             name,

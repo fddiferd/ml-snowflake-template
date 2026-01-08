@@ -16,8 +16,13 @@ from projects.pltv import (
 )
 from projects.pltv.data.utils import CACHE_PATH
 
-
 logger = logging.getLogger(__name__)
+
+def _reset_schema(session: Session) -> None:
+    """Reset the schema for the model."""
+    from src.environment import environment
+    session.sql(f"DROP SCHEMA IF EXISTS {environment.schema_name} CASCADE").collect()
+    session.sql(f"CREATE SCHEMA {environment.schema_name}").collect()
 
 
 def main_level(session: Session, writer: Writer, level: Level):
@@ -46,7 +51,7 @@ def main_level(session: Session, writer: Writer, level: Level):
     model_service.run()
 
 
-def main(writer_type: WriterType = WriterType.CSV):
+def main(writer_type: WriterType = WriterType.CSV, reset_schema: bool = False):
     """Run the model for all levels.
     
     Args:
@@ -57,16 +62,18 @@ def main(writer_type: WriterType = WriterType.CSV):
     """
     session = get_session()
 
+    if reset_schema and writer_type == WriterType.SNOWFLAKE:
+        _reset_schema(session)
+
     writer = create_writer(
         writer_type, 
         session=session,
         folder_path=CACHE_PATH
     )
     
-    # Run for each level
-    for level in Level:
-        main_level(session, writer, level)
+    # Run for CAMPAIGN level
+    main_level(session, writer, Level.CAMPAIGN)
 
 
 if __name__ == "__main__":
-    main(writer_type=WriterType.SNOWFLAKE)
+    main(writer_type=WriterType.SNOWFLAKE, reset_schema=True)

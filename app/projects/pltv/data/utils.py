@@ -1,8 +1,6 @@
 import os
 
-
-# Single source of truth for the cache/output path
-CACHE_PATH = 'app/projects/pltv/data/cache'
+from projects.pltv.config import CACHE_PATH
 
 
 def get_file_path(file_name: str, csv: bool = False) -> str:

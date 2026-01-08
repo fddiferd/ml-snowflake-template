@@ -21,7 +21,7 @@ FRAUD_DISPUTE_QUERY = """
         ts.short_name as traffic_source_short_name,
         tr.bin,
         p.offer_type,
-        count(distinct "Dispute ARN") as count
+        count(distinct txn_id) as count
 
     from pc_fivetran_db.accounts_bi.adyen_dispute_report_mv a
 
@@ -61,7 +61,7 @@ SETTLEMENT_QUERY = """
         ts.short_name as traffic_source_short_name,
         tr.bin,
         p.offer_type,
-        count(distinct "ARN") as count
+        count(distinct txn_id) as count
 
     from pc_fivetran_db.accounts_bi.adyen_payments_accounting_report_mv a
 

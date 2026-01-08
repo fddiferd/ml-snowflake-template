@@ -2,21 +2,57 @@ import logging
 import uuid
 from sklearn.model_selection import train_test_split
 from datetime import datetime, timezone
-from typing import cast
+from typing import Any, cast
 from pandas import DataFrame, Series, concat
 
 from src.pipeline.xgboost import run_pipeline, PRED_YHAT_COL, PRED_YHAT_LOWER_COL, PRED_YHAT_UPPER_COL
 from src.utils.model import evaluate_model
 from src.writers import Writer
 
-from projects.pltv.model.result_collector import ResultCollector
-from projects.pltv import (
-    config, 
-    PartitionItem,
+from projects.pltv.data.result_collector import ResultCollector
+from projects.pltv.config import (
+    # Enums
     Level,
+    ModelStep,
+    # Column constants
+    GROSS_ADDS_COL,
+    TIMESTAMP_COL,
+    IS_PREDICTED_COL,
+    PREDICTION_BASE_COL,
+    # Table constants
+    TABLE_SPINE_DATA,
+    TABLE_RAW_RESULTS,
+    TABLE_MODEL_METADATA,
+    TABLE_TEST_TRAIN_SPLIT_METADATA,
+    TABLE_TEST_TRAIN_SPLIT_FEATURE_IMPORTANCES,
+    TABLE_TRAIN_PREDICT_METADATA,
+    TABLE_TRAIN_PREDICT_RESULTS,
+    TABLE_DATASET,
+    # Status constants
+    STATUS_TRAINED,
+    STATUS_PREDICTED,
+    STATUS_BYPASSED,
+    # Configuration values
+    MIN_COHORT_SIZE,
+    PREDICTION_BASE_THRESHOLD,
+    BOOLEAN_COLS,
+    NUM_COLS,
+    # Lists
+    partitions,
+    model_steps,
+    # Helper functions
+    get_cat_cols,
+    get_num_cols,
+    get_model_status_col,
+    get_total_net_billings_col,
+    get_avg_net_billings_col,
+    get_join_keys,
+    time_horizons,
+)
+from projects.pltv.models.types import (
+    PartitionItem,
     ModelMetadata,
     ModelStatus,
-    ModelStep,
     ModelStepMetadata,
     ModelStepResults,
     ModelStepPredictionMetadata,
@@ -25,16 +61,6 @@ from projects.pltv import (
 
 
 logger = logging.getLogger(__name__)
-
-
-# Table name constants
-INITIAL_DF_TABLE_NAME = 'SPINE_DATA'
-FINAL_DF_TABLE_NAME = 'RAW_RESULTS'
-MODEL_RESULT_TABLE_NAME = 'MODEL_METADATA'
-TEST_TRAIN_SPLIT_METADATA_TABLE_NAME = 'TEST_TRAIN_SPLIT_METADATA'
-TEST_TRAIN_SPLIT_FEATURE_IMPORTANCES_TABLE_NAME = 'TEST_TRAIN_SPLIT_FEATURE_IMPORTANCES'
-TRAIN_PREDICT_METADATA_TABLE_NAME = 'TRAIN_PREDICT_METADATA'
-TRAIN_PREDICT_RESULTS_TABLE_NAME = 'TRAIN_PREDICT_RESULTS'
 
     
 class ModelService:
@@ -70,9 +96,9 @@ class ModelService:
     def run(self):
         """Run the model pipeline and write results."""
         try:
-            self._add_df_to_collector(INITIAL_DF_TABLE_NAME, self.df)
+            self._add_df_to_collector(TABLE_SPINE_DATA, self.df)
             final_df = self._run()
-            self._add_df_to_collector(FINAL_DF_TABLE_NAME, final_df)
+            self._add_df_to_collector(TABLE_RAW_RESULTS, final_df)
             self._add_model_metadata_to_collector(ModelStatus.COMPLETED)
             
             # Flush all collected results at the end
@@ -87,14 +113,14 @@ class ModelService:
     def _run(self) -> DataFrame:
         final_df = DataFrame()
         # loop through partitions
-        for partition in config.partitions:
+        for partition in partitions:
             # loop through partition values
             for partition_value in partition.values:
                 # partition the data
                 logger.info(f"Partitioning data where {partition.name} = {partition_value}")
                 partition_df = self.df[self.df[partition.name] == partition_value]
                 # run steps
-                for step in config.model_steps:
+                for step in model_steps:
                     if step.is_step_in_partition(partition, partition_value):
                         output_df = self._run_step(
                             partition_item=PartitionItem(partition=partition, value=partition_value),
@@ -105,6 +131,10 @@ class ModelService:
                 final_df = concat([final_df, partition_df])
         # log results
         self._log_result()
+
+        # Build and add dashboard dataset
+        dataset_df = self._build_dataset_df(cast(DataFrame, final_df))
+        self._add_df_to_collector(TABLE_DATASET, dataset_df)
 
         return cast(DataFrame, final_df)
 
@@ -123,11 +153,11 @@ class ModelService:
             
             # Add train/test split results to collector
             self._collector.add(
-                f'{self.level.name}_{TEST_TRAIN_SPLIT_METADATA_TABLE_NAME}',
+                f'{self.level.name}_{TABLE_TEST_TRAIN_SPLIT_METADATA}',
                 train_metadata.to_metadata_dataframe()
             )
             self._collector.add(
-                f'{self.level.name}_{TEST_TRAIN_SPLIT_FEATURE_IMPORTANCES_TABLE_NAME}',
+                f'{self.level.name}_{TABLE_TEST_TRAIN_SPLIT_FEATURE_IMPORTANCES}',
                 train_metadata.to_feature_importances_dataframe()
             )
 
@@ -136,11 +166,11 @@ class ModelService:
         
         # Add prediction results to collector
         self._collector.add(
-            f'{self.level.name}_{TRAIN_PREDICT_METADATA_TABLE_NAME}',
+            f'{self.level.name}_{TABLE_TRAIN_PREDICT_METADATA}',
             prediction_metadata.to_metadata_dataframe()
         )
         self._collector.add(
-            f'{self.level.name}_{TRAIN_PREDICT_RESULTS_TABLE_NAME}',
+            f'{self.level.name}_{TABLE_TRAIN_PREDICT_RESULTS}',
             prediction_metadata.to_prediction_results_dataframe()
         )
 
@@ -163,9 +193,9 @@ class ModelService:
         step_logger.info(f"Training on {len(train_df)} rows and testing on {len(test_df)} rows")
 
         # run pipeline
-        cat_cols = config.get_cat_cols(self.level)
-        num_cols = config.get_num_cols(partition_item, step)
-        boolean_cols = config.boolean_cols
+        cat_cols = get_cat_cols(self.level)
+        num_cols = get_num_cols(partition_item.partition, partition_item.value, step)
+        boolean_cols = BOOLEAN_COLS
         result_df, trained_model = run_pipeline(
             cast(DataFrame, train_df),
             cast(DataFrame, test_df),
@@ -211,86 +241,86 @@ class ModelService:
         df = df.copy()
         step_logger = logger.getChild(step.name + "_TRAIN_PREDICT")
 
-        # create training mask
-        training_mask = self._get_training_mask(df, step, step_logger)
-        
-        # create prediction mask
-        min_cohort_col = step.min_cohort_col
-        prediction_mask = Series(True, index=df.index)
+        # --- Setup ---
         pb_col = step.get_prediction_base_col(partition_item.partition, partition_item.value)
-        step_logger.info(f"Adding mask {min_cohort_col} / {pb_col} < {config.prediction_base_threshold} or {min_cohort_col} is na or {pb_col} is na")
-        prediction_mask &= (
-                (
-                    (df[min_cohort_col] < config.min_cohort_size) # lower than min cohort size
-                    & (df[min_cohort_col] / df[pb_col] < config.prediction_base_threshold) # ratio of min cohort col to base col is less than threshold
-                )
-                | df[min_cohort_col].isna()
-                | df[pb_col].isna()
-            )
+        cat_cols = get_cat_cols(self.level)
+        num_cols = get_num_cols(partition_item.partition, partition_item.value, step)
+        boolean_cols = BOOLEAN_COLS
+        model_status_col = get_model_status_col(step)
         
-        # run pipeline
-        cat_cols = config.get_cat_cols(self.level)
-        num_cols = config.get_num_cols(partition_item, step)
-        boolean_cols = config.boolean_cols
+        # Common columns for clean result DataFrames
+        key_cols = get_join_keys(self.level)
 
+        logging.info(f"--------------------------------")
+        logging.info(f"Key cols: {key_cols}")
+        logging.info(f"Num cols: {num_cols}")
+        logging.info(f"Group bys: {self.level.group_bys}")
+
+        # --- Create masks and split data ---
+        training_mask = self._get_training_mask(df, step, step_logger)
+        prediction_mask = self._get_prediction_mask(df, step, pb_col, step_logger)
+        
         train_df = cast(DataFrame, df[training_mask].copy())
         predict_df = cast(DataFrame, df[prediction_mask].copy())
         passthrough_df = cast(DataFrame, df[~prediction_mask].copy())
-
+        
         step_logger.info(f"Predicting on {len(predict_df)} rows")
 
-        # Handle case where there are no rows to predict
+        # --- Handle empty prediction case ---
         if len(predict_df) == 0:
             step_logger.info("No rows require prediction - all data is baked")
-            model_status_col = f'{step.name}_MODEL'
-            passthrough_df[model_status_col] = training_mask.loc[passthrough_df.index].map({True: 'TRAINED', False: 'BYPASSED'})
-            output_df = passthrough_df
-            result_clean_df = DataFrame()  # Empty result since no predictions were made
-        else:
-            result_df, _ = run_pipeline(
-                train_df,
-                predict_df,
-                target_col=step.target_col,
+            passthrough_df[model_status_col] = training_mask.loc[passthrough_df.index].map(
+                {True: STATUS_TRAINED, False: STATUS_BYPASSED}
+            )
+            
+            return ModelStepPredictionMetadata(
+                model_id=self.model_id,
+                prediction_rows=0,
+                partition_item=partition_item,
+                step=step,
                 cat_cols=cat_cols,
                 num_cols=num_cols,
                 boolean_cols=boolean_cols,
+                output_df=passthrough_df,
+                result_df=DataFrame(),
             )
 
-            # clean result df - only include consistent columns across all steps
-            # (num_cols vary between steps, so we exclude them from the saved results)
-            result_clean_df = cast(DataFrame, result_df[
-                config.get_key_names(self.level) + [
-                    config.timestamp_col,
-                    partition_item.partition.name,
-                ] + self.level.group_bys + [
-                    PRED_YHAT_COL,
-                    PRED_YHAT_LOWER_COL,
-                    PRED_YHAT_UPPER_COL,
-                ]
-            ].copy())
-            # Add the base column to be able to compute from the rates / avg billings
-            prediction_base_col = step.get_prediction_base_col(partition_item.partition, partition_item.value)
-            result_clean_df['PREDICTION_BASE_COL'] = predict_df[prediction_base_col].values # use .values to bypass index alignment
+        # --- Run prediction pipeline ---
+        result_df, _ = run_pipeline(
+            train_df, predict_df,
+            target_col=step.target_col,
+            cat_cols=cat_cols,
+            num_cols=num_cols,
+            boolean_cols=boolean_cols,
+        )
 
-            # -- Construct output df to feed into next step --
-            # Add Model Status Column
-            model_status_col = f'{step.name}_MODEL'
-            passthrough_df[model_status_col] = training_mask.loc[passthrough_df.index].map({True: 'TRAINED', False: 'BYPASSED'})
-            predict_df[model_status_col] = 'PREDICTED'
-            # Overwrite the target column with the predicted values
-            predict_df[step.target_col] = result_df[PRED_YHAT_COL].values # use .values to bypass index alignment
-            # Overwrite the rate target survived column with the predicted values
-            if step.rate_target_survived_col is not None:
-                # This is essential for the first rebill rate and promo activation rate steps
-                predict_df[step.rate_target_survived_col] = (
-                    # multiply the prediction by the base col
-                    result_df[PRED_YHAT_COL].values # use .values to bypass index alignment
-                    * predict_df[prediction_base_col]
-                )
-            # Concatenate the passthrough and predict dataframes
-            output_df = cast(DataFrame, concat([passthrough_df, predict_df]))
+        # --- Build clean result DataFrame for storage ---
+        # (excludes num_cols which vary between steps)
+        result_clean_df = self._build_clean_result_df(
+            source_df=result_df,
+            key_cols=key_cols,
+            yhat_col=PRED_YHAT_COL,
+            base_values=predict_df[pb_col].values,
+        )
 
-        prediction_metadata = ModelStepPredictionMetadata(
+        # --- Build output DataFrame for next step ---
+        passthrough_df[model_status_col] = training_mask.loc[passthrough_df.index].map(
+            {True: STATUS_TRAINED, False: STATUS_BYPASSED}
+        )
+        predict_df[model_status_col] = STATUS_PREDICTED
+        predict_df[step.target_col] = result_df[PRED_YHAT_COL].values
+        
+        if step.rate_target_survived_col is not None:
+            # fill the survived column with the predicted rate * prediction base
+            predict_df[step.rate_target_survived_col] = result_df[PRED_YHAT_COL].values * predict_df[pb_col]
+
+        if step.is_retention_target:
+            # fill the eligible column with the prediction base so we can recalculate the rate in aggregate
+            predict_df[step.min_cohort_col] = predict_df[pb_col]
+        
+        output_df = cast(DataFrame, concat([passthrough_df, predict_df]))
+
+        return ModelStepPredictionMetadata(
             model_id=self.model_id,
             prediction_rows=len(predict_df),
             partition_item=partition_item,
@@ -299,15 +329,107 @@ class ModelService:
             num_cols=num_cols,
             boolean_cols=boolean_cols,
             output_df=output_df,
-            result_df=result_clean_df
+            result_df=result_clean_df,
         )
 
-        return prediction_metadata
+    def _get_prediction_mask(
+        self, df: DataFrame, step: ModelStep, pb_col: str, step_logger: logging.Logger
+    ) -> Series:
+        """Create mask for rows that need prediction (not baked)."""
+        min_cohort_col = step.min_cohort_col
+        step_logger.info(
+            f"Adding mask {min_cohort_col} / {pb_col} < {PREDICTION_BASE_THRESHOLD} "
+            f"or {min_cohort_col} is na or {pb_col} is na"
+        )
+        return (
+            ((df[min_cohort_col] < MIN_COHORT_SIZE) 
+             & (df[min_cohort_col] / df[pb_col] < PREDICTION_BASE_THRESHOLD))
+            | df[min_cohort_col].isna()
+            | df[pb_col].isna()
+        )
+
+    def _build_clean_result_df(
+        self,
+        source_df: DataFrame,
+        key_cols: list[str],
+        yhat_col: str,
+        base_values: Any,
+    ) -> DataFrame:
+        """Build a clean result DataFrame with consistent columns for storage."""
+        clean_df = cast(DataFrame, source_df[key_cols + [yhat_col]].copy())
+        
+        # Normalize column name to YHAT
+        if yhat_col != PRED_YHAT_COL:
+            clean_df.rename(columns={yhat_col: PRED_YHAT_COL}, inplace=True)
+        
+        # Add bounds (only present for predicted rows)
+        clean_df[PRED_YHAT_LOWER_COL] = source_df[PRED_YHAT_LOWER_COL].values
+        clean_df[PRED_YHAT_UPPER_COL] = source_df[PRED_YHAT_UPPER_COL].values
+        
+        clean_df[PREDICTION_BASE_COL] = base_values
+        
+        return clean_df
+
+    def _build_dataset_df(self, final_df: DataFrame) -> DataFrame:
+        """Build a clean dataset for dashboard consumption."""
+        df = final_df.copy()
+        
+        # Determine IS_PREDICTED from model status columns
+        status_cols = [get_model_status_col(step) for step in model_steps]
+        existing_status_cols = [c for c in status_cols if c in df.columns]
+        df[IS_PREDICTED_COL] = df[existing_status_cols].eq(STATUS_PREDICTED).any(axis=1)
+        
+        # Convert avg billing cols to totals using time horizons
+        for time_horizon in time_horizons:
+            avg_col = get_avg_net_billings_col(time_horizon)
+            total_col = get_total_net_billings_col(time_horizon)
+            if avg_col in df.columns:
+                df[total_col] = df[avg_col] * df[GROSS_ADDS_COL]
+        
+        # Transform numerical columns (avg_* or *_rate) to totals
+        all_num_cols = set(c.upper() for c in NUM_COLS)
+        for partition in partitions:
+            for value in partition.values:
+                all_num_cols.update(c.upper() for c in partition.get_additional_regressor_cols(value))
+
+        transformed_num_cols = []
+        for col in all_num_cols:
+            if col not in df.columns:
+                continue
+            if col.startswith('AVG_') or col.endswith('_RATE'):
+                new_col = col.removeprefix('AVG_').removesuffix('_RATE')
+                df[new_col] = df[col] * df[GROSS_ADDS_COL]
+                transformed_num_cols.append(new_col)
+        
+        # Select final columns
+        key_cols = get_join_keys(self.level)
+        
+        # Get retention metric columns dynamically
+        retention_cols = []
+        for step in model_steps:
+            if step.min_cohort_col and step.min_cohort_col in df.columns:
+                retention_cols.append(step.min_cohort_col)
+            if step.rate_target_survived_col and step.rate_target_survived_col in df.columns:
+                retention_cols.append(step.rate_target_survived_col)
+        retention_cols = list(dict.fromkeys(retention_cols))  # dedupe preserving order
+        
+        # Get total billing columns
+        total_billing_cols = [c for c in df.columns if c.startswith('TOTAL_NET_BILLINGS')]
+        
+        output_cols = (
+            key_cols
+            + [IS_PREDICTED_COL, GROSS_ADDS_COL] 
+            + retention_cols 
+            + sorted(transformed_num_cols)
+            + sorted(total_billing_cols)
+        )
+        
+        return cast(DataFrame, df[[c for c in output_cols if c in df.columns]])
 
     def _get_training_mask(self, df: DataFrame, step: ModelStep, step_logger: logging.Logger) -> Series:       
         # create training mask
         training_mask = Series(True, index=df.index)
-        training_mask &= df[step.min_cohort_col] >= config.min_cohort_size
+        training_mask &= df[step.min_cohort_col] >= MIN_COHORT_SIZE
         # check for nulls
         null_mask: Series = cast(Series, df[step.target_col]).isna()
         training_null_df = cast(DataFrame, df[null_mask & training_mask])
@@ -360,7 +482,7 @@ class ModelService:
             status=status,
             message=message,
         )
-        self._collector.add(MODEL_RESULT_TABLE_NAME, model_metadata.to_dataframe())
+        self._collector.add(TABLE_MODEL_METADATA, model_metadata.to_dataframe())
 
     def _add_df_to_collector(self, table_name: str, df: DataFrame):
         file_name = f'{self.level.name.upper()}_{table_name}'

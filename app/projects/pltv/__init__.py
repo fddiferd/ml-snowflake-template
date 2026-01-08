@@ -11,16 +11,16 @@ Usage:
     
     session = get_session()
     writer = create_writer("parquet", folder_path="app/projects/pltv/data/cache")
-    loader = DatasetLoader(session, writer, cache_path="app/projects/pltv/data/cache")
+    loader = DatasetLoader(session, cache_path="app/projects/pltv/data/cache")
     df = loader.load(Level.CHANNEL)
     clean_df(df)
     ModelService(Level.CHANNEL, df, writer).run()
 
 Exports:
     Session:    get_session
-    Config:     config, fv_configs
-    Types:      Config, Partition, PartitionItem, FeatureViewConfig
-    Enums:      TimeHorizon, ModelStep
+    Config:     fv_configs, constants, and helper functions
+    Types:      Partition, PartitionItem, FeatureViewConfig
+    Enums:      Level, TimeHorizon, ModelStep
     Data:       DatasetLoader, get_df, get_df_from_cache, clean_df
     Model:      ModelService
 """
@@ -41,34 +41,73 @@ if TYPE_CHECKING:
     from projects.pltv.data.dataset import get_df_from_cache as get_df_from_cache
     from projects.pltv.data.feature_engineering import clean_df as clean_df
     from projects.pltv.data.loader import DatasetLoader as DatasetLoader
-    from projects.pltv.model.model_service import ModelService as ModelService
+    from projects.pltv.models import ModelService as ModelService
 
 from projects import Project
 from src.connection.session import get_session as get_snowflake_session
 
-# Core components (eager imports - no circular dependency issues)
-from projects.pltv.core.config import config, fv_configs
-from projects.pltv.core.enums import (
+# Config exports (enums, constants, helpers)
+from projects.pltv.config import (
+    # Enums
     Level,
     Levels,
-    Partitions,
+    levels,
     Partition,
-    TimeHorizon, 
-    ModelStep, 
-    ModelSteps, 
-    TimeHorizons
-)
-from projects.pltv.core.base_models import (
-    Config, 
-    PartitionItem, 
-    FeatureViewConfig, 
+    Partitions,
+    partitions,
+    partition_fields,
+    partition_sql_fields,
+    TimeHorizon,
+    TimeHorizons,
+    time_horizons,
+    ModelStep,
+    ModelSteps,
+    model_steps,
+    # Column constants
+    GROSS_ADDS_COL,
+    TIMESTAMP_COL,
+    IS_PREDICTED_COL,
+    # Table constants
+    TABLE_SPINE_DATA,
+    TABLE_RAW_RESULTS,
+    TABLE_MODEL_METADATA,
+    TABLE_DATASET,
+    # Status constants
+    STATUS_TRAINED,
+    STATUS_PREDICTED,
+    STATUS_BYPASSED,
+    # Configuration values
+    VERSION_NUMBER,
+    MIN_COHORT_SIZE,
+    PREDICTION_BASE_THRESHOLD,
+    CAT_COLS,
+    NUM_COLS,
+    BOOLEAN_COLS,
+    # Column helpers
+    get_gross_adds_created_over_days_ago_col,
+    get_net_billings_col,
+    get_avg_net_billings_col,
+    get_total_net_billings_col,
+    get_model_status_col,
+    # Key helpers
+    get_cat_cols,
+    get_num_cols,
+    get_join_keys,
+    # Feature view configs
+    FeatureViewConfig,
     FeatureViewConfigs,
+    fv_configs,
+)
+
+# Runtime models
+from projects.pltv.models import (
+    PartitionItem,
+    ModelStatus,
+    ModelMetadata,
     ModelStepMetadata,
     ModelStepResults,
     ModelStepPredictionMetadata,
     ModelStepPredictionResults,
-    ModelMetadata,
-    ModelStatus,
 )
 
 
@@ -81,7 +120,7 @@ def get_session() -> Session:
 # Lazy imports for data functions
 # ============================================================================
 # These are loaded on first access to avoid circular imports.
-# The pattern: core/config imports queries, but data modules import config.
+# The pattern: config imports queries, but data modules import config.
 # Lazy loading breaks this cycle.
 
 _lazy_imports = {
@@ -91,7 +130,7 @@ _lazy_imports = {
     "clean_df": ("projects.pltv.data.feature_engineering", "clean_df"),
     "DatasetLoader": ("projects.pltv.data.loader", "DatasetLoader"),
     # Model service
-    "ModelService": ("projects.pltv.model.model_service", "ModelService"),
+    "ModelService": ("projects.pltv.models", "ModelService"),
 }
 
 
@@ -108,33 +147,67 @@ def __getattr__(name: str):
 __all__ = [
     # Session
     "get_session",
-    # Config
-    "config", 
-    "fv_configs",
     # Enums
-    "TimeHorizon", 
-    "ModelStep", 
-    "ModelSteps", 
-    "TimeHorizons", 
-    # Types
-    "Config", 
-    "Level", 
+    "Level",
     "Levels",
+    "levels",
+    "Partition",
     "Partitions",
-    "Partition", 
-    "PartitionItem", 
-    "FeatureViewConfig", 
+    "partitions",
+    "partition_fields",
+    "partition_sql_fields",
+    "TimeHorizon",
+    "TimeHorizons",
+    "time_horizons",
+    "ModelStep",
+    "ModelSteps",
+    "model_steps",
+    # Column constants
+    "GROSS_ADDS_COL",
+    "TIMESTAMP_COL",
+    "IS_PREDICTED_COL",
+    # Table constants
+    "TABLE_SPINE_DATA",
+    "TABLE_RAW_RESULTS",
+    "TABLE_MODEL_METADATA",
+    "TABLE_DATASET",
+    # Status constants
+    "STATUS_TRAINED",
+    "STATUS_PREDICTED",
+    "STATUS_BYPASSED",
+    # Configuration values
+    "VERSION_NUMBER",
+    "MIN_COHORT_SIZE",
+    "PREDICTION_BASE_THRESHOLD",
+    "CAT_COLS",
+    "NUM_COLS",
+    "BOOLEAN_COLS",
+    # Column helpers
+    "get_gross_adds_created_over_days_ago_col",
+    "get_net_billings_col",
+    "get_avg_net_billings_col",
+    "get_total_net_billings_col",
+    "get_model_status_col",
+    # Key helpers
+    "get_cat_cols",
+    "get_num_cols",
+    "get_join_keys",
+    # Feature view configs
+    "FeatureViewConfig",
     "FeatureViewConfigs",
+    "fv_configs",
+    # Runtime models
+    "PartitionItem",
+    "ModelStatus",
+    "ModelMetadata",
     "ModelStepMetadata",
     "ModelStepResults",
     "ModelStepPredictionMetadata",
     "ModelStepPredictionResults",
-    "ModelMetadata",
-    "ModelStatus",
     # Data functions (lazy loaded)
     "DatasetLoader",
     "get_df",
-    "get_df_from_cache", 
+    "get_df_from_cache",
     "clean_df",
     # Model (lazy loaded)
     "ModelService",
