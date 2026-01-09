@@ -16,7 +16,7 @@ Usage:
 from enum import Enum
 from typing import TypeAlias, Any
 
-from projects.pltv.data.queries.feature_views import RETENTION_METRICS_QUERY, BILLING_METRICS_QUERY
+from projects.pltv.data.queries.feature_views import RETENTION_METRICS_QUERY, BILLING_METRICS_QUERY, CROSS_SELL_METRICS_QUERY
 
 
 # =============================================================================
@@ -27,6 +27,7 @@ GROSS_ADDS_COL = "GROSS_ADDS"
 TIMESTAMP_COL = "COHORT_MONTH"
 IS_PREDICTED_COL = "IS_PREDICTED"
 PREDICTION_BASE_COL = "PREDICTION_BASE_COL"
+GROSS_ADD_TYPE_COL = "GROSS_ADD__TYPE"
 
 # Retention columns
 ELIGIBLE_PROMO_ACTIVATIONS_COL = "ELIGIBLE_PROMO_ACTIVATIONS"
@@ -39,6 +40,18 @@ GROSS_ADDS_CANCELED_DAY_ONE_COL = "GROSS_ADDS_CANCELED_DAY_ONE"
 GROSS_ADDS_CANCELED_DAY_THREE_COL = "GROSS_ADDS_CANCELED_DAY_THREE"
 GROSS_ADDS_CANCELED_DAY_SEVEN_COL = "GROSS_ADDS_CANCELED_DAY_SEVEN"
 GROSS_ADDS_CANCELED_DAY_ONE_RATE_COL = "GROSS_ADDS_CANCELED_DAY_ONE_RATE"
+GROSS_ADDS_CANCELED_DAY_THREE_RATE_COL = "GROSS_ADDS_CANCELED_DAY_THREE_RATE"
+GROSS_ADDS_CANCELED_DAY_SEVEN_RATE_COL = "GROSS_ADDS_CANCELED_DAY_SEVEN_RATE"
+
+# Cross-sell columns (counts)
+CROSS_SELL_ADDS_DAY_ONE_COL = "CROSS_SELL_ADDS_ONE_DAY_SINCE_GROSS_ADD"
+CROSS_SELL_ADDS_DAY_THREE_COL = "CROSS_SELL_ADDS_THREE_DAYS_SINCE_GROSS_ADD"
+CROSS_SELL_ADDS_DAY_SEVEN_COL = "CROSS_SELL_ADDS_SEVEN_DAYS_SINCE_GROSS_ADD"
+
+# Cross-sell rate columns
+CROSS_SELL_ADDS_DAY_ONE_RATE_COL = "CROSS_SELL_ADDS_DAY_ONE_RATE"
+CROSS_SELL_ADDS_DAY_THREE_RATE_COL = "CROSS_SELL_ADDS_DAY_THREE_RATE"
+CROSS_SELL_ADDS_DAY_SEVEN_RATE_COL = "CROSS_SELL_ADDS_DAY_SEVEN_RATE"
 
 # Promo columns
 AVG_PROMO_DAYS_COL = "AVG_PROMO_DAYS"
@@ -83,12 +96,18 @@ VERSION_NUMBER = 1
 MIN_COHORT_SIZE = 250
 PREDICTION_BASE_THRESHOLD = 0.75
 
-# Feature columns for model training
+# Additional join columns (also GROUP BY and cat features for the model)
+ADDITIONAL_JOIN_COLS: list[str] = [
+    GROSS_ADD_TYPE_COL,
+]
+
+# Feature columns for model training (cat features NOT used as join keys)
 CAT_COLS: list[str] = []
 NUM_COLS: list[str] = [
     AVG_RECURRING_DAYS_COL,
     AVG_RECURRING_PRICE_COL,
     GROSS_ADDS_CANCELED_DAY_ONE_RATE_COL,
+    CROSS_SELL_ADDS_DAY_ONE_RATE_COL,
 ]
 BOOLEAN_COLS: list[str] = []
 
@@ -128,13 +147,8 @@ class Level(Enum):
     @property
     def sql_fields(self) -> str:
         """Returns comma-separated group_bys for SQL queries."""
-        return ", ".join(self.group_bys) + ("," if self.group_bys else "")
-
-    def get_key_fields(self) -> list[tuple[str, list[str]]]:
-        """Returns list of tuples with level name and cumulative sublists of group_bys."""
-        levels = [l for l in Level if l.value <= self.value]
-        return [(l.name, self.group_bys[:i+1]) for i, l in enumerate(levels)]
-
+        col_list = ADDITIONAL_JOIN_COLS + [col.upper() for col in self.group_bys]
+        return ", ".join(col_list) + ("," if col_list else "")
 
 Levels: TypeAlias = list[Level]
 levels = [l for l in Level]
@@ -198,13 +212,13 @@ time_horizons = [t for t in TimeHorizon]
 # =============================================================================
 
 class ModelStep(Enum):
-    # Cancellation Steps
-    GROSS_ADDS_CANCELED_DAY_THREE_RATE = 1
-    GROSS_ADDS_CANCELED_DAY_SEVEN_RATE = 2
-    # Retention Steps
+    # Multi-target steps (cancel + cross-sell together)
+    DAY_3_METRICS = 1
+    DAY_7_METRICS = 2
+    # Retention Steps (single target)
     PROMO_ACTIVATION_RATE_EXCL_RETRIES = 3
     FIRST_REBILL_RATE_EXCL_RETRIES = 4
-    # Billing Steps
+    # Billing Steps (single target)
     AVG_NET_BILLINGS_30_DAYS = 5
     AVG_NET_BILLINGS_60_DAYS = 6
     AVG_NET_BILLINGS_90_DAYS = 7
@@ -213,8 +227,20 @@ class ModelStep(Enum):
     AVG_NET_BILLINGS_730_DAYS = 10
 
     @property
-    def target_col(self) -> str:
-        return self.name.upper()
+    def target_cols(self) -> list[str]:
+        """Return list of target columns for this step."""
+        match self:
+            case ModelStep.DAY_3_METRICS:
+                return [GROSS_ADDS_CANCELED_DAY_THREE_RATE_COL, CROSS_SELL_ADDS_DAY_THREE_RATE_COL]
+            case ModelStep.DAY_7_METRICS:
+                return [GROSS_ADDS_CANCELED_DAY_SEVEN_RATE_COL, CROSS_SELL_ADDS_DAY_SEVEN_RATE_COL]
+            case _:
+                return [self.name.upper()]
+
+    @property
+    def is_multi_target(self) -> bool:
+        """Return True if this step predicts multiple targets."""
+        return len(self.target_cols) > 1
 
     @property
     def is_retention_target(self) -> bool:
@@ -228,20 +254,19 @@ class ModelStep(Enum):
         return "AVG_NET_BILLINGS" in self.name
 
     @property
-    def rate_target_survived_col(self) -> str | None:
+    def rate_target_survived_cols(self) -> list[str]:
+        """Returns the 'survived' columns for rate targets (used to back-calculate counts)."""
         match self:
-            case ModelStep.GROSS_ADDS_CANCELED_DAY_THREE_RATE:
-                return GROSS_ADDS_CANCELED_DAY_THREE_COL
-            case ModelStep.GROSS_ADDS_CANCELED_DAY_SEVEN_RATE:
-                return GROSS_ADDS_CANCELED_DAY_SEVEN_COL
+            case ModelStep.DAY_3_METRICS:
+                return [GROSS_ADDS_CANCELED_DAY_THREE_COL, CROSS_SELL_ADDS_DAY_THREE_COL]
+            case ModelStep.DAY_7_METRICS:
+                return [GROSS_ADDS_CANCELED_DAY_SEVEN_COL, CROSS_SELL_ADDS_DAY_SEVEN_COL]
             case ModelStep.PROMO_ACTIVATION_RATE_EXCL_RETRIES:
-                return SURVIVED_PROMO_ACTIVATIONS_COL
+                return [SURVIVED_PROMO_ACTIVATIONS_COL]
             case ModelStep.FIRST_REBILL_RATE_EXCL_RETRIES:
-                return SURVIVED_FIRST_REBILLS_COL
+                return [SURVIVED_FIRST_REBILLS_COL]
             case _:
-                if self.is_billing_step:
-                    return None
-                raise ValueError(f"Model Step {self.name} does not have a rate target survived column")
+                return []
 
     @property
     def min_cohort_col(self) -> str:
@@ -257,7 +282,10 @@ class ModelStep(Enum):
     def get_additional_regressor_cols(self, partition: "Partition", partition_value: Any) -> list[str]:
         """Returns target_cols from all previous steps as additional regressors."""
         additional_regressor_cols = partition.get_additional_regressor_cols(partition_value)
-        return [step.target_col for step in self._previous_steps] + additional_regressor_cols
+        previous_target_cols = []
+        for step in self._previous_steps:
+            previous_target_cols.extend(step.target_cols)
+        return previous_target_cols + additional_regressor_cols
 
     def is_step_in_partition(self, partition: "Partition", partition_value: Any) -> bool:
         """Ensure that when PLAN__IS_PROMO is False, the promo step is skipped."""
@@ -276,9 +304,9 @@ class ModelStep(Enum):
     @property
     def _days_ago(self) -> int:
         match self:
-            case ModelStep.GROSS_ADDS_CANCELED_DAY_THREE_RATE:
+            case ModelStep.DAY_3_METRICS:
                 return 3
-            case ModelStep.GROSS_ADDS_CANCELED_DAY_SEVEN_RATE:
+            case ModelStep.DAY_7_METRICS:
                 return 7
             case ModelStep.AVG_NET_BILLINGS_30_DAYS:
                 return 30
@@ -339,8 +367,8 @@ def get_model_status_col(step: ModelStep) -> str:
 # =============================================================================
 
 def get_cat_cols(level: Level) -> list[str]:
-    """Return cat cols for the level as well as the global group bys."""
-    return CAT_COLS + [col.upper() for col in level.group_bys]
+    """Return all categorical columns for the model (CAT_COLS + ADDITIONAL_JOIN_COLS + level group_bys)."""
+    return CAT_COLS + ADDITIONAL_JOIN_COLS + [col.upper() for col in level.group_bys]
 
 
 def get_num_cols(partition: Partition, partition_value: Any, step: ModelStep) -> list[str]:
@@ -350,7 +378,7 @@ def get_num_cols(partition: Partition, partition_value: Any, step: ModelStep) ->
 
 def get_join_keys(level: Level) -> list[str]:
     """Get join keys for a level."""
-    return [TIMESTAMP_COL] + partition_fields + [col.upper() for col in level.group_bys]
+    return [TIMESTAMP_COL] + partition_fields + ADDITIONAL_JOIN_COLS + [col.upper() for col in level.group_bys]
 
 
 # =============================================================================
@@ -369,4 +397,5 @@ FeatureViewConfigs: TypeAlias = list[FeatureViewConfig]
 fv_configs: FeatureViewConfigs = [
     FeatureViewConfig(name="RETENTION_METRICS", query=RETENTION_METRICS_QUERY),
     FeatureViewConfig(name="BILLING_METRICS", query=BILLING_METRICS_QUERY),
+    FeatureViewConfig(name="CROSS_SELL_METRICS", query=CROSS_SELL_METRICS_QUERY),
 ]

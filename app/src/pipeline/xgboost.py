@@ -31,8 +31,9 @@ Usage:
 import logging
 import pandas as pd
 import numpy as np
+from scipy import stats
 from xgboost import XGBRegressor
-from typing import Any
+from typing import Any, cast
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
@@ -152,7 +153,6 @@ class XGBoostRegressorWrapper(BaseEstimator, RegressorMixin):
         predictions = self.model_.predict(X)
         
         # Calculate interval width (approximation using normal distribution)
-        from scipy import stats
         z_score = stats.norm.ppf((1 + confidence_level) / 2)
         interval_width = z_score * self.y_std_
         
@@ -350,7 +350,7 @@ def run_pipeline(
     pred_upper_col: str = PRED_YHAT_UPPER_COL,
 ) -> tuple[pd.DataFrame, XGBoostRegressorWrapper]:
     """
-    Run the XGBoost pipeline.
+    Run the XGBoost pipeline for single-target regression.
     """
     # Create pipeline
     model, preprocessor = get_pipeline(
@@ -406,3 +406,117 @@ def run_pipeline(
 
     logger.info(f"Result dataframe now has {len(result_df.columns)} columns (added 3 prediction columns)")
     return result_df, model
+
+
+def run_multi_output_pipeline(
+    train_df: pd.DataFrame,
+    predict_df: pd.DataFrame,
+    target_cols: list[str],
+    cat_cols: list[str],
+    num_cols: list[str],
+    boolean_cols: list[str],
+    max_categories: int | None = None,
+    xgboost_params: dict[str, Any] | None = None,
+    impute_strategy: str = 'median',
+) -> tuple[pd.DataFrame, dict[str, XGBoostRegressorWrapper]]:
+    """
+    Run the XGBoost pipeline for multi-target regression.
+    
+    Trains a separate model for each target column and returns predictions for all.
+    
+    Args:
+        train_df: Training DataFrame
+        predict_df: Prediction DataFrame
+        target_cols: List of target column names to predict
+        cat_cols: Categorical columns
+        num_cols: Numerical columns
+        boolean_cols: Boolean columns
+        max_categories: Max categories for one-hot encoding
+        xgboost_params: XGBoost parameters
+        impute_strategy: Imputation strategy
+        
+    Returns:
+        Tuple of (result_df with predictions, dict of trained models keyed by target_col)
+    """
+    from sklearn.multioutput import MultiOutputRegressor
+    
+    logger.info(f"Running multi-output pipeline for targets: {target_cols}")
+    
+    # Create preprocessor
+    preprocessor = get_preprocessor(
+        cat_cols=cat_cols,
+        num_cols=num_cols,
+        boolean_cols=boolean_cols,
+        max_categories=max_categories,
+        impute_strategy=impute_strategy,
+    )
+    
+    # Default XGBoost parameters
+    if xgboost_params is None:
+        xgboost_params = {
+            'n_estimators': 100,
+            'max_depth': 6,
+            'learning_rate': 0.1,
+            'subsample': 0.8,
+            'colsample_bytree': 0.8,
+            'random_state': 42,
+        }
+    
+    # Extract targets before preprocessing
+    y_train = train_df[target_cols]
+    
+    # Prepare training data
+    train_prepared = prepare_data(
+        train_df,
+        preprocessor,
+        fit_preprocessor=True,
+    )
+    X_train = train_prepared
+    
+    # Create and fit multi-output model
+    base_model = XGBoostRegressorWrapper(**xgboost_params)
+    multi_model = MultiOutputRegressor(base_model)
+    
+    logger.info(f"Training multi-output model on {len(X_train)} samples for {len(target_cols)} targets...")
+    multi_model.fit(X_train, y_train)
+    
+    # Prepare prediction data
+    logger.info("Preparing prediction data...")
+    predict_prepared = prepare_data(
+        df=predict_df,
+        preprocessor=preprocessor,
+        fit_preprocessor=False,
+    )
+    X_predict = predict_prepared
+    
+    # Make predictions
+    predictions = multi_model.predict(X_predict)
+    
+    # Build result DataFrame
+    result_df = predict_df.reset_index(drop=True).copy()
+    
+    # Add prediction columns for each target
+    models_dict: dict[str, XGBoostRegressorWrapper] = {}
+    estimators = cast(list[XGBoostRegressorWrapper], multi_model.estimators_)
+    
+    for i, target_col in enumerate(target_cols):
+        pred_col = f"{target_col}_YHAT"
+        result_df[pred_col] = predictions[:, i]
+        
+        # Store the individual estimator
+        estimator = estimators[i]
+        models_dict[target_col] = estimator
+        
+        # Calculate prediction intervals using residual std from training
+        train_preds = estimator.predict(X_train)
+        residuals = cast(pd.Series, y_train[target_col]).values - train_preds
+        y_std = np.std(residuals)
+        
+        z_score = stats.norm.ppf(0.975)  # 95% confidence
+        interval_width = z_score * y_std
+        
+        result_df[f"{target_col}_YHAT_LOWER"] = predictions[:, i] - interval_width
+        result_df[f"{target_col}_YHAT_UPPER"] = predictions[:, i] + interval_width
+    
+    logger.info(f"Result dataframe now has {len(result_df.columns)} columns (added {len(target_cols) * 3} prediction columns)")
+    return result_df, models_dict

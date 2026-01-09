@@ -127,6 +127,18 @@ class ModelStepMetadata(ModelStepBase):
     feature_importances: DataFrame
     model: XGBoostRegressorWrapper
 
+    @computed_field
+    @property
+    def target_cols(self) -> list[str]:
+        """Return target columns for this step."""
+        return self.step.target_cols
+
+    @computed_field
+    @property
+    def is_multi_target(self) -> bool:
+        """Return True if this step predicts multiple targets."""
+        return self.step.is_multi_target
+
     def to_metadata_dataframe(self) -> DataFrame:
         """Convert step metadata to a DataFrame for writing."""
         data = self.model_dump(mode='json', exclude={'model', 'feature_importances'})
@@ -134,6 +146,8 @@ class ModelStepMetadata(ModelStepBase):
         # Extract step and partition info
         data['step_number'] = self.step.value
         data['step_name'] = self.step.name
+        data['target_cols'] = self.target_cols
+        data['is_multi_target'] = self.is_multi_target
         data['partition_item'] = self.partition_item.model_dump(mode='json')
         data['eval_result'] = self.eval_result.model_dump(mode='json')
 
@@ -162,6 +176,18 @@ class ModelStepPredictionMetadata(ModelStepBase):
     output_df: DataFrame
     result_df: DataFrame
 
+    @computed_field
+    @property
+    def target_cols(self) -> list[str]:
+        """Return target columns for this step."""
+        return self.step.target_cols
+
+    @computed_field
+    @property
+    def is_multi_target(self) -> bool:
+        """Return True if this step predicts multiple targets."""
+        return self.step.is_multi_target
+
     def to_metadata_dataframe(self) -> DataFrame:
         """Convert prediction metadata to a DataFrame for writing."""
         data = self.model_dump(mode='json', exclude={'output_df', 'result_df'})
@@ -169,6 +195,8 @@ class ModelStepPredictionMetadata(ModelStepBase):
         # Extract step and partition info
         data['step_number'] = self.step.value
         data['step_name'] = self.step.name
+        data['target_cols'] = self.target_cols
+        data['is_multi_target'] = self.is_multi_target
         data['partition_item'] = self.partition_item.model_dump(mode='json')
 
         df = DataFrame([data]).reset_index(drop=True)

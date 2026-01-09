@@ -10,6 +10,7 @@ with retention_metrics as (
         gross_add__channel as channel,
         gross_add__traffic_source as traffic_source,
         coalesce(gross_add__campaign, 'NONE') as campaign,
+        gross_add__type,
         gross_add__plan__is_promo as plan__is_promo,
         survived_promo_activations_excl_retries,
         eligible_promo_activations,
@@ -48,6 +49,7 @@ with billing_metrics as (
         gross_add__channel as channel,
         gross_add__traffic_source as traffic_source,
         coalesce(gross_add__campaign, 'NONE') as campaign,
+        gross_add__type,
         gross_add__plan__is_promo as plan__is_promo,
         net_billings_30_days_since_gross_add,
         net_billings_60_days_since_gross_add,
@@ -70,5 +72,36 @@ select
     sum(net_billings_365_days_since_gross_add) as net_billings_365_days,
     sum(net_billings_730_days_since_gross_add) as net_billings_730_days,
 from billing_metrics
+group by all
+"""
+
+
+CROSS_SELL_METRICS_QUERY = """
+with metrics as (
+    -- clean the column names to remove gross add entity
+select
+        gross_add__created__month as {timestamp_col},
+        gross_add__brand as brand,
+        gross_add__sku_type as sku_type,
+        gross_add__channel as channel,
+        gross_add__traffic_source as traffic_source,
+        coalesce(gross_add__campaign, 'NONE') as campaign,
+        gross_add__type,
+        gross_add__plan__is_promo as plan__is_promo,
+        cross_sell_adds_one_day_since_gross_add,
+        cross_sell_adds_three_days_since_gross_add,
+        cross_sell_adds_seven_days_since_gross_add,
+    from bi_layer_db.prod.exp_pltv_cross_sell_metrics
+) 
+
+select
+    {timestamp_col},
+    {group_bys}
+    {partitions}
+    -- metrics
+    coalesce(sum(cross_sell_adds_one_day_since_gross_add), 0) as cross_sell_adds_one_day_since_gross_add,
+    coalesce(sum(cross_sell_adds_three_days_since_gross_add), 0) as cross_sell_adds_three_days_since_gross_add,
+    coalesce(sum(cross_sell_adds_seven_days_since_gross_add), 0) as cross_sell_adds_seven_days_since_gross_add,
+from metrics
 group by all
 """

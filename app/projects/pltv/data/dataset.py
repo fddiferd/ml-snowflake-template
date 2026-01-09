@@ -40,7 +40,7 @@ def get_dataset(session: Session, level: Level) -> DataFrame:
         group_bys=level.sql_fields,
         partitions=partition_sql_fields,
     )
-    logger.debug(f"Spine SQL: {spine_sql}")
+    logger.info(f"Spine SQL: {spine_sql}")
     spine_df = session.sql(spine_sql)
     svc.set_spine(spine_df)
     # entity
@@ -57,7 +57,7 @@ def get_dataset(session: Session, level: Level) -> DataFrame:
             group_bys=level.sql_fields,
             partitions=partition_sql_fields
         )
-        logger.debug(f"Feature SQL: {feature_sql}")
+        logger.info(f"Feature SQL: {feature_sql}")
         feature_df = session.sql(feature_sql)
         svc.set_feature_view(
             feature_df, 

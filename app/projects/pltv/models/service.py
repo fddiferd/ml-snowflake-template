@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, cast
 from pandas import DataFrame, Series, concat
 
-from src.pipeline.xgboost import run_pipeline, PRED_YHAT_COL, PRED_YHAT_LOWER_COL, PRED_YHAT_UPPER_COL
+from src.pipeline.xgboost import run_pipeline, run_multi_output_pipeline, PRED_YHAT_COL, PRED_YHAT_LOWER_COL, PRED_YHAT_UPPER_COL
 from src.utils.model import evaluate_model
 from src.writers import Writer
 
@@ -19,6 +19,9 @@ from projects.pltv.config import (
     TIMESTAMP_COL,
     IS_PREDICTED_COL,
     PREDICTION_BASE_COL,
+    # Day-1 baked columns (no model prediction needed)
+    GROSS_ADDS_CANCELED_DAY_ONE_COL,
+    CROSS_SELL_ADDS_DAY_ONE_COL,
     # Table constants
     TABLE_SPINE_DATA,
     TABLE_RAW_RESULTS,
@@ -47,6 +50,7 @@ from projects.pltv.config import (
     get_total_net_billings_col,
     get_avg_net_billings_col,
     get_join_keys,
+    get_gross_adds_created_over_days_ago_col,
     time_horizons,
 )
 from projects.pltv.models.types import (
@@ -196,24 +200,60 @@ class ModelService:
         cat_cols = get_cat_cols(self.level)
         num_cols = get_num_cols(partition_item.partition, partition_item.value, step)
         boolean_cols = BOOLEAN_COLS
-        result_df, trained_model = run_pipeline(
-            cast(DataFrame, train_df),
-            cast(DataFrame, test_df),
-            target_col=step.target_col,
-            cat_cols=cat_cols,
-            num_cols=num_cols,
-            boolean_cols=boolean_cols,
-        )
+        target_cols = step.target_cols
+        
+        if step.is_multi_target:
+            # Multi-output pipeline
+            result_df, models_dict = run_multi_output_pipeline(
+                cast(DataFrame, train_df),
+                cast(DataFrame, test_df),
+                target_cols=target_cols,
+                cat_cols=cat_cols,
+                num_cols=num_cols,
+                boolean_cols=boolean_cols,
+            )
+            
+            # Evaluate first target (primary metric for logging)
+            primary_target = target_cols[0]
+            eval_result = evaluate_model(
+                cast(Series, result_df[primary_target]), 
+                y_pred=cast(Series, result_df[f"{primary_target}_YHAT"])
+            )
+            step_logger.info(f"Evaluation result (primary target {primary_target}): {eval_result.model_dump()}")
+            
+            # Log evaluation for all targets
+            for target_col in target_cols:
+                target_eval = evaluate_model(
+                    cast(Series, result_df[target_col]), 
+                    y_pred=cast(Series, result_df[f"{target_col}_YHAT"])
+                )
+                step_logger.info(f"  {target_col}: {target_eval.model_dump()}")
+            
+            # Get feature importance from first model
+            trained_model = models_dict[primary_target]
+            feature_importances = trained_model.get_feature_importance()
+        else:
+            # Single-output pipeline
+            target_col = target_cols[0]
+            result_df, trained_model = run_pipeline(
+                cast(DataFrame, train_df),
+                cast(DataFrame, test_df),
+                target_col=target_col,
+                cat_cols=cat_cols,
+                num_cols=num_cols,
+                boolean_cols=boolean_cols,
+            )
 
-        # evaluate model
-        eval_result = evaluate_model(
-            cast(Series, result_df[step.target_col]), 
-            y_pred=cast(Series, result_df[PRED_YHAT_COL])
-        )
-        step_logger.info(f"Evaluation result: {eval_result.model_dump()}")
+            # evaluate model
+            eval_result = evaluate_model(
+                cast(Series, result_df[target_col]), 
+                y_pred=cast(Series, result_df[PRED_YHAT_COL])
+            )
+            step_logger.info(f"Evaluation result: {eval_result.model_dump()}")
 
-        # get feature importance
-        feature_importances = trained_model.get_feature_importance()
+            # get feature importance
+            feature_importances = trained_model.get_feature_importance()
+        
         step_logger.debug(f"Feature importances: {feature_importances.to_dict()}")
 
         metadata = ModelStepMetadata(
@@ -247,6 +287,7 @@ class ModelService:
         num_cols = get_num_cols(partition_item.partition, partition_item.value, step)
         boolean_cols = BOOLEAN_COLS
         model_status_col = get_model_status_col(step)
+        target_cols = step.target_cols
         
         # Common columns for clean result DataFrames
         key_cols = get_join_keys(self.level)
@@ -255,6 +296,7 @@ class ModelService:
         logging.info(f"Key cols: {key_cols}")
         logging.info(f"Num cols: {num_cols}")
         logging.info(f"Group bys: {self.level.group_bys}")
+        logging.info(f"Target cols: {target_cols}")
 
         # --- Create masks and split data ---
         training_mask = self._get_training_mask(df, step, step_logger)
@@ -286,37 +328,70 @@ class ModelService:
             )
 
         # --- Run prediction pipeline ---
-        result_df, _ = run_pipeline(
-            train_df, predict_df,
-            target_col=step.target_col,
-            cat_cols=cat_cols,
-            num_cols=num_cols,
-            boolean_cols=boolean_cols,
-        )
+        if step.is_multi_target:
+            result_df, _ = run_multi_output_pipeline(
+                train_df, predict_df,
+                target_cols=target_cols,
+                cat_cols=cat_cols,
+                num_cols=num_cols,
+                boolean_cols=boolean_cols,
+            )
+            
+            # Build clean result DataFrame with all target predictions
+            result_clean_df = self._build_multi_target_result_df(
+                source_df=result_df,
+                key_cols=key_cols,
+                target_cols=target_cols,
+                base_values=predict_df[pb_col].values,
+            )
+            
+            # Update predict_df with all predicted values
+            passthrough_df[model_status_col] = training_mask.loc[passthrough_df.index].map(
+                {True: STATUS_TRAINED, False: STATUS_BYPASSED}
+            )
+            predict_df[model_status_col] = STATUS_PREDICTED
+            
+            # Fill in target columns with predictions
+            for target_col in target_cols:
+                predict_df[target_col] = result_df[f"{target_col}_YHAT"].values
+            
+            # Fill survived columns with predicted rate * prediction base
+            survived_cols = step.rate_target_survived_cols
+            for i, (target_col, survived_col) in enumerate(zip(target_cols, survived_cols)):
+                predict_df[survived_col] = result_df[f"{target_col}_YHAT"].values * predict_df[pb_col]
+        else:
+            target_col = target_cols[0]
+            result_df, _ = run_pipeline(
+                train_df, predict_df,
+                target_col=target_col,
+                cat_cols=cat_cols,
+                num_cols=num_cols,
+                boolean_cols=boolean_cols,
+            )
 
-        # --- Build clean result DataFrame for storage ---
-        # (excludes num_cols which vary between steps)
-        result_clean_df = self._build_clean_result_df(
-            source_df=result_df,
-            key_cols=key_cols,
-            yhat_col=PRED_YHAT_COL,
-            base_values=predict_df[pb_col].values,
-        )
+            # Build clean result DataFrame for storage
+            result_clean_df = self._build_clean_result_df(
+                source_df=result_df,
+                key_cols=key_cols,
+                yhat_col=PRED_YHAT_COL,
+                base_values=predict_df[pb_col].values,
+            )
 
-        # --- Build output DataFrame for next step ---
-        passthrough_df[model_status_col] = training_mask.loc[passthrough_df.index].map(
-            {True: STATUS_TRAINED, False: STATUS_BYPASSED}
-        )
-        predict_df[model_status_col] = STATUS_PREDICTED
-        predict_df[step.target_col] = result_df[PRED_YHAT_COL].values
-        
-        if step.rate_target_survived_col is not None:
-            # fill the survived column with the predicted rate * prediction base
-            predict_df[step.rate_target_survived_col] = result_df[PRED_YHAT_COL].values * predict_df[pb_col]
+            # Build output DataFrame for next step
+            passthrough_df[model_status_col] = training_mask.loc[passthrough_df.index].map(
+                {True: STATUS_TRAINED, False: STATUS_BYPASSED}
+            )
+            predict_df[model_status_col] = STATUS_PREDICTED
+            predict_df[target_col] = result_df[PRED_YHAT_COL].values
+            
+            survived_cols = step.rate_target_survived_cols
+            if survived_cols:
+                # fill the survived column with the predicted rate * prediction base
+                predict_df[survived_cols[0]] = result_df[PRED_YHAT_COL].values * predict_df[pb_col]
 
-        if step.is_retention_target:
-            # fill the eligible column with the prediction base so we can recalculate the rate in aggregate
-            predict_df[step.min_cohort_col] = predict_df[pb_col]
+            if step.is_retention_target:
+                # fill the eligible column with the prediction base so we can recalculate the rate in aggregate
+                predict_df[step.min_cohort_col] = predict_df[pb_col]
         
         output_df = cast(DataFrame, concat([passthrough_df, predict_df]))
 
@@ -331,6 +406,28 @@ class ModelService:
             output_df=output_df,
             result_df=result_clean_df,
         )
+    
+    def _build_multi_target_result_df(
+        self,
+        source_df: DataFrame,
+        key_cols: list[str],
+        target_cols: list[str],
+        base_values: Any,
+    ) -> DataFrame:
+        """Build a clean result DataFrame for multi-target predictions."""
+        # Start with key columns
+        clean_df = cast(DataFrame, source_df[key_cols].copy())
+        
+        # Add prediction columns for each target
+        for target_col in target_cols:
+            yhat_col = f"{target_col}_YHAT"
+            clean_df[yhat_col] = source_df[yhat_col].values
+            clean_df[f"{target_col}_YHAT_LOWER"] = source_df[f"{target_col}_YHAT_LOWER"].values
+            clean_df[f"{target_col}_YHAT_UPPER"] = source_df[f"{target_col}_YHAT_UPPER"].values
+        
+        clean_df[PREDICTION_BASE_COL] = base_values
+        
+        return clean_df
 
     def _get_prediction_mask(
         self, df: DataFrame, step: ModelStep, pb_col: str, step_logger: logging.Logger
@@ -374,6 +471,9 @@ class ModelService:
         """Build a clean dataset for dashboard consumption."""
         df = final_df.copy()
         
+        # Add model_id for filtering by model run
+        df['MODEL_ID'] = self.model_id
+        
         # Determine IS_PREDICTED from model status columns
         status_cols = [get_model_status_col(step) for step in model_steps]
         existing_status_cols = [c for c in status_cols if c in df.columns]
@@ -406,23 +506,39 @@ class ModelService:
         
         # Get retention metric columns dynamically
         retention_cols = []
+        
+        # Add day-1 baked columns (no model prediction needed)
+        day_1_cols = [
+            get_gross_adds_created_over_days_ago_col(1),  # GROSS_ADDS_CREATED_OVER_1_DAYS_AGO
+            GROSS_ADDS_CANCELED_DAY_ONE_COL,
+            CROSS_SELL_ADDS_DAY_ONE_COL,
+        ]
+        for col in day_1_cols:
+            if col in df.columns:
+                retention_cols.append(col)
+        
+        # Add columns from model steps (day 3, 7, etc.)
         for step in model_steps:
             if step.min_cohort_col and step.min_cohort_col in df.columns:
                 retention_cols.append(step.min_cohort_col)
-            if step.rate_target_survived_col and step.rate_target_survived_col in df.columns:
-                retention_cols.append(step.rate_target_survived_col)
+            for survived_col in step.rate_target_survived_cols:
+                if survived_col in df.columns:
+                    retention_cols.append(survived_col)
         retention_cols = list(dict.fromkeys(retention_cols))  # dedupe preserving order
         
         # Get total billing columns
         total_billing_cols = [c for c in df.columns if c.startswith('TOTAL_NET_BILLINGS')]
         
         output_cols = (
-            key_cols
+            ['MODEL_ID']
+            + key_cols
             + [IS_PREDICTED_COL, GROSS_ADDS_COL] 
             + retention_cols 
             + sorted(transformed_num_cols)
             + sorted(total_billing_cols)
         )
+        # Dedupe while preserving order (retention_cols take priority over transformed_num_cols)
+        output_cols = list(dict.fromkeys(output_cols))
         
         return cast(DataFrame, df[[c for c in output_cols if c in df.columns]])
 
@@ -430,15 +546,21 @@ class ModelService:
         # create training mask
         training_mask = Series(True, index=df.index)
         training_mask &= df[step.min_cohort_col] >= MIN_COHORT_SIZE
-        # check for nulls
-        null_mask: Series = cast(Series, df[step.target_col]).isna()
+        
+        # check for nulls across all target columns
+        target_cols = step.target_cols
+        null_mask = Series(False, index=df.index)
+        for target_col in target_cols:
+            col_null_mask: Series = cast(Series, df[target_col]).isna()
+            null_mask |= col_null_mask
+        
         training_null_df = cast(DataFrame, df[null_mask & training_mask])
         if len(training_null_df) > 0:
             group_by_cols = self.level.group_bys
             # Add null values to collector for debugging
             self._collector.add(f'{self.level.name.upper()}_NULL_VALUES', training_null_df)
             logger.warning(
-                f"Target column {step.target_col} has {len(training_null_df)} null values in {len(training_null_df.groupby(group_by_cols).size())} unique {group_by_cols} combinations"
+                f"Target columns {target_cols} have {len(training_null_df)} null values in {len(training_null_df.groupby(group_by_cols).size())} unique {group_by_cols} combinations"
             )
             training_mask &= ~null_mask
         step_logger.info(f"Training mask: {training_mask.sum()} rows")

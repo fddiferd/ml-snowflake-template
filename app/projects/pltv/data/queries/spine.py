@@ -7,6 +7,7 @@ with base as (
         channel,
         traffic_source,
         coalesce(campaign, 'NONE') as campaign,
+        gross_add__type,
         plan__offer_type,
         plan__is_promo,
         plan__promo_price,
