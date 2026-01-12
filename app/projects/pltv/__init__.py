@@ -71,7 +71,7 @@ from projects.pltv.config import (
     TABLE_SPINE_DATA,
     TABLE_RAW_RESULTS,
     TABLE_MODEL_METADATA,
-    TABLE_DATASET,
+    # TABLE_DATASET,
     # Status constants
     STATUS_TRAINED,
     STATUS_PREDICTED,
@@ -170,7 +170,7 @@ __all__ = [
     "TABLE_SPINE_DATA",
     "TABLE_RAW_RESULTS",
     "TABLE_MODEL_METADATA",
-    "TABLE_DATASET",
+    # "TABLE_DATASET",
     # Status constants
     "STATUS_TRAINED",
     "STATUS_PREDICTED",

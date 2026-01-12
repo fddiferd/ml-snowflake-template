@@ -19,6 +19,7 @@ from projects.pltv.config import (
     TIMESTAMP_COL,
     IS_PREDICTED_COL,
     PREDICTION_BASE_COL,
+    TARGET_COL,
     # Day-1 baked columns (no model prediction needed)
     GROSS_ADDS_CANCELED_DAY_ONE_COL,
     CROSS_SELL_ADDS_DAY_ONE_COL,
@@ -30,7 +31,7 @@ from projects.pltv.config import (
     TABLE_TEST_TRAIN_SPLIT_FEATURE_IMPORTANCES,
     TABLE_TRAIN_PREDICT_METADATA,
     TABLE_TRAIN_PREDICT_RESULTS,
-    TABLE_DATASET,
+    # TABLE_DATASET,
     # Status constants
     STATUS_TRAINED,
     STATUS_PREDICTED,
@@ -137,8 +138,8 @@ class ModelService:
         self._log_result()
 
         # Build and add dashboard dataset
-        dataset_df = self._build_dataset_df(cast(DataFrame, final_df))
-        self._add_df_to_collector(TABLE_DATASET, dataset_df)
+        # dataset_df = self._build_dataset_df(cast(DataFrame, final_df))
+        # self._add_df_to_collector(TABLE_DATASET, dataset_df)
 
         return cast(DataFrame, final_df)
 
@@ -373,7 +374,7 @@ class ModelService:
             result_clean_df = self._build_clean_result_df(
                 source_df=result_df,
                 key_cols=key_cols,
-                yhat_col=PRED_YHAT_COL,
+                target_col=target_col,
                 base_values=predict_df[pb_col].values,
             )
 
@@ -414,20 +415,22 @@ class ModelService:
         target_cols: list[str],
         base_values: Any,
     ) -> DataFrame:
-        """Build a clean result DataFrame for multi-target predictions."""
-        # Start with key columns
-        clean_df = cast(DataFrame, source_df[key_cols].copy())
+        """Build normalized result DataFrame for multi-target predictions.
         
-        # Add prediction columns for each target
+        Creates one row per target with generic YHAT columns and a TARGET_COL
+        to identify which target the prediction is for.
+        """
+        rows = []
         for target_col in target_cols:
-            yhat_col = f"{target_col}_YHAT"
-            clean_df[yhat_col] = source_df[yhat_col].values
-            clean_df[f"{target_col}_YHAT_LOWER"] = source_df[f"{target_col}_YHAT_LOWER"].values
-            clean_df[f"{target_col}_YHAT_UPPER"] = source_df[f"{target_col}_YHAT_UPPER"].values
+            target_df = cast(DataFrame, source_df[key_cols].copy())
+            target_df[TARGET_COL] = target_col
+            target_df[PRED_YHAT_COL] = source_df[f"{target_col}_YHAT"].values
+            target_df[PRED_YHAT_LOWER_COL] = source_df[f"{target_col}_YHAT_LOWER"].values
+            target_df[PRED_YHAT_UPPER_COL] = source_df[f"{target_col}_YHAT_UPPER"].values
+            target_df[PREDICTION_BASE_COL] = base_values
+            rows.append(target_df)
         
-        clean_df[PREDICTION_BASE_COL] = base_values
-        
-        return clean_df
+        return concat(rows, ignore_index=True)
 
     def _get_prediction_mask(
         self, df: DataFrame, step: ModelStep, pb_col: str, step_logger: logging.Logger
@@ -449,17 +452,24 @@ class ModelService:
         self,
         source_df: DataFrame,
         key_cols: list[str],
-        yhat_col: str,
+        target_col: str,
         base_values: Any,
     ) -> DataFrame:
-        """Build a clean result DataFrame with consistent columns for storage."""
-        clean_df = cast(DataFrame, source_df[key_cols + [yhat_col]].copy())
+        """Build a clean result DataFrame with consistent columns for storage.
         
-        # Normalize column name to YHAT
-        if yhat_col != PRED_YHAT_COL:
-            clean_df.rename(columns={yhat_col: PRED_YHAT_COL}, inplace=True)
+        Args:
+            source_df: Source DataFrame with predictions
+            key_cols: List of key columns to include
+            target_col: Name of the target column being predicted
+            base_values: Prediction base values
+        """
+        clean_df = cast(DataFrame, source_df[key_cols].copy())
         
-        # Add bounds (only present for predicted rows)
+        # Add target column identifier
+        clean_df[TARGET_COL] = target_col
+        
+        # Add prediction columns with normalized names
+        clean_df[PRED_YHAT_COL] = source_df[PRED_YHAT_COL].values
         clean_df[PRED_YHAT_LOWER_COL] = source_df[PRED_YHAT_LOWER_COL].values
         clean_df[PRED_YHAT_UPPER_COL] = source_df[PRED_YHAT_UPPER_COL].values
         
@@ -467,80 +477,80 @@ class ModelService:
         
         return clean_df
 
-    def _build_dataset_df(self, final_df: DataFrame) -> DataFrame:
-        """Build a clean dataset for dashboard consumption."""
-        df = final_df.copy()
+    # def _build_dataset_df(self, final_df: DataFrame) -> DataFrame:
+    #     """Build a clean dataset for dashboard consumption."""
+    #     df = final_df.copy()
         
-        # Add model_id for filtering by model run
-        df['MODEL_ID'] = self.model_id
+    #     # Add model_id for filtering by model run
+    #     df['MODEL_ID'] = self.model_id
         
-        # Determine IS_PREDICTED from model status columns
-        status_cols = [get_model_status_col(step) for step in model_steps]
-        existing_status_cols = [c for c in status_cols if c in df.columns]
-        df[IS_PREDICTED_COL] = df[existing_status_cols].eq(STATUS_PREDICTED).any(axis=1)
+    #     # Determine IS_PREDICTED from model status columns
+    #     status_cols = [get_model_status_col(step) for step in model_steps]
+    #     existing_status_cols = [c for c in status_cols if c in df.columns]
+    #     df[IS_PREDICTED_COL] = df[existing_status_cols].eq(STATUS_PREDICTED).any(axis=1)
         
-        # Convert avg billing cols to totals using time horizons
-        for time_horizon in time_horizons:
-            avg_col = get_avg_net_billings_col(time_horizon)
-            total_col = get_total_net_billings_col(time_horizon)
-            if avg_col in df.columns:
-                df[total_col] = df[avg_col] * df[GROSS_ADDS_COL]
+    #     # Convert avg billing cols to totals using time horizons
+    #     for time_horizon in time_horizons:
+    #         avg_col = get_avg_net_billings_col(time_horizon)
+    #         total_col = get_total_net_billings_col(time_horizon)
+    #         if avg_col in df.columns:
+    #             df[total_col] = df[avg_col] * df[GROSS_ADDS_COL]
         
-        # Transform numerical columns (avg_* or *_rate) to totals
-        all_num_cols = set(c.upper() for c in NUM_COLS)
-        for partition in partitions:
-            for value in partition.values:
-                all_num_cols.update(c.upper() for c in partition.get_additional_regressor_cols(value))
+    #     # Transform numerical columns (avg_* or *_rate) to totals
+    #     all_num_cols = set(c.upper() for c in NUM_COLS)
+    #     for partition in partitions:
+    #         for value in partition.values:
+    #             all_num_cols.update(c.upper() for c in partition.get_additional_regressor_cols(value))
 
-        transformed_num_cols = []
-        for col in all_num_cols:
-            if col not in df.columns:
-                continue
-            if col.startswith('AVG_') or col.endswith('_RATE'):
-                new_col = col.removeprefix('AVG_').removesuffix('_RATE')
-                df[new_col] = df[col] * df[GROSS_ADDS_COL]
-                transformed_num_cols.append(new_col)
+    #     transformed_num_cols = []
+    #     for col in all_num_cols:
+    #         if col not in df.columns:
+    #             continue
+    #         if col.startswith('AVG_') or col.endswith('_RATE'):
+    #             new_col = col.removeprefix('AVG_').removesuffix('_RATE')
+    #             df[new_col] = df[col] * df[GROSS_ADDS_COL]
+    #             transformed_num_cols.append(new_col)
         
-        # Select final columns
-        key_cols = get_join_keys(self.level)
+    #     # Select final columns
+    #     key_cols = get_join_keys(self.level)
         
-        # Get retention metric columns dynamically
-        retention_cols = []
+    #     # Get retention metric columns dynamically
+    #     retention_cols = []
         
-        # Add day-1 baked columns (no model prediction needed)
-        day_1_cols = [
-            get_gross_adds_created_over_days_ago_col(1),  # GROSS_ADDS_CREATED_OVER_1_DAYS_AGO
-            GROSS_ADDS_CANCELED_DAY_ONE_COL,
-            CROSS_SELL_ADDS_DAY_ONE_COL,
-        ]
-        for col in day_1_cols:
-            if col in df.columns:
-                retention_cols.append(col)
+    #     # Add day-1 baked columns (no model prediction needed)
+    #     day_1_cols = [
+    #         get_gross_adds_created_over_days_ago_col(1),  # GROSS_ADDS_CREATED_OVER_1_DAYS_AGO
+    #         GROSS_ADDS_CANCELED_DAY_ONE_COL,
+    #         CROSS_SELL_ADDS_DAY_ONE_COL,
+    #     ]
+    #     for col in day_1_cols:
+    #         if col in df.columns:
+    #             retention_cols.append(col)
         
-        # Add columns from model steps (day 3, 7, etc.)
-        for step in model_steps:
-            if step.min_cohort_col and step.min_cohort_col in df.columns:
-                retention_cols.append(step.min_cohort_col)
-            for survived_col in step.rate_target_survived_cols:
-                if survived_col in df.columns:
-                    retention_cols.append(survived_col)
-        retention_cols = list(dict.fromkeys(retention_cols))  # dedupe preserving order
+    #     # Add columns from model steps (day 3, 7, etc.)
+    #     for step in model_steps:
+    #         if step.min_cohort_col and step.min_cohort_col in df.columns:
+    #             retention_cols.append(step.min_cohort_col)
+    #         for survived_col in step.rate_target_survived_cols:
+    #             if survived_col in df.columns:
+    #                 retention_cols.append(survived_col)
+    #     retention_cols = list(dict.fromkeys(retention_cols))  # dedupe preserving order
         
-        # Get total billing columns
-        total_billing_cols = [c for c in df.columns if c.startswith('TOTAL_NET_BILLINGS')]
+    #     # Get total billing columns
+    #     total_billing_cols = [c for c in df.columns if c.startswith('TOTAL_NET_BILLINGS')]
         
-        output_cols = (
-            ['MODEL_ID']
-            + key_cols
-            + [IS_PREDICTED_COL, GROSS_ADDS_COL] 
-            + retention_cols 
-            + sorted(transformed_num_cols)
-            + sorted(total_billing_cols)
-        )
-        # Dedupe while preserving order (retention_cols take priority over transformed_num_cols)
-        output_cols = list(dict.fromkeys(output_cols))
+    #     output_cols = (
+    #         ['MODEL_ID']
+    #         + key_cols
+    #         + [IS_PREDICTED_COL, GROSS_ADDS_COL] 
+    #         + retention_cols 
+    #         + sorted(transformed_num_cols)
+    #         + sorted(total_billing_cols)
+    #     )
+    #     # Dedupe while preserving order (retention_cols take priority over transformed_num_cols)
+    #     output_cols = list(dict.fromkeys(output_cols))
         
-        return cast(DataFrame, df[[c for c in output_cols if c in df.columns]])
+    #     return cast(DataFrame, df[[c for c in output_cols if c in df.columns]])
 
     def _get_training_mask(self, df: DataFrame, step: ModelStep, step_logger: logging.Logger) -> Series:       
         # create training mask
