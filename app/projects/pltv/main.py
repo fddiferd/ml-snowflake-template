@@ -76,4 +76,4 @@ def main(writer_type: WriterType = WriterType.CSV, reset_schema: bool = False):
 
 
 if __name__ == "__main__":
-    main(writer_type=WriterType.SNOWFLAKE, reset_schema=False)
+    main(writer_type=WriterType.SNOWFLAKE, reset_schema=True)

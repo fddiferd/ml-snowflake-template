@@ -137,6 +137,8 @@ class ModelService:
         # log results
         self._log_result()
 
+        final_df['MODEL_ID'] = self.model_id
+
         # Build and add dashboard dataset
         # dataset_df = self._build_dataset_df(cast(DataFrame, final_df))
         # self._add_df_to_collector(TABLE_DATASET, dataset_df)

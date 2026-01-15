@@ -79,7 +79,7 @@ group by all
 CROSS_SELL_METRICS_QUERY = """
 with metrics as (
     -- clean the column names to remove gross add entity
-select
+    select
         gross_add__created__month as {timestamp_col},
         gross_add__brand as brand,
         gross_add__sku_type as sku_type,
@@ -88,6 +88,8 @@ select
         coalesce(gross_add__campaign, 'NONE') as campaign,
         gross_add__type,
         gross_add__plan__is_promo as plan__is_promo,
+        plan__recurring_price,
+        cross_sell_adds,
         cross_sell_adds_one_day_since_gross_add,
         cross_sell_adds_three_days_since_gross_add,
         cross_sell_adds_seven_days_since_gross_add,
@@ -99,6 +101,8 @@ select
     {group_bys}
     {partitions}
     -- metrics
+    sum(cross_sell_adds) as total_cross_sell_adds,
+    coalesce(div0(sum(plan__recurring_price * cross_sell_adds) , total_cross_sell_adds), 0) as avg_cross_sell_price,
     coalesce(sum(cross_sell_adds_one_day_since_gross_add), 0) as cross_sell_adds_one_day_since_gross_add,
     coalesce(sum(cross_sell_adds_three_days_since_gross_add), 0) as cross_sell_adds_three_days_since_gross_add,
     coalesce(sum(cross_sell_adds_seven_days_since_gross_add), 0) as cross_sell_adds_seven_days_since_gross_add,

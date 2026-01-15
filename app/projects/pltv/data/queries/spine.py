@@ -19,7 +19,7 @@ with base as (
         gross_adds_canceled_day_three,
         gross_adds_canceled_day_seven
     from bi_layer_db.prod.exp_pltv_gross_add_metrics
-    where gross_add__created__day >= '2021-01-01'
+    where gross_add__created__day >= '2021-01-01' and brand <> 'USSearchProfessional'
 )
 
 select
