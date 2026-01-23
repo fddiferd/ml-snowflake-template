@@ -204,6 +204,8 @@ class TimeHorizon(Enum):
     DAYS_180 = "180"
     DAYS_365 = "365"
     DAYS_730 = "730"
+    DAYS_1095 = "1095"
+    DAYS_1460 = "1460"
 
 
 TimeHorizons: TypeAlias = list[TimeHorizon]
@@ -228,6 +230,8 @@ class ModelStep(Enum):
     AVG_NET_BILLINGS_180_DAYS = 8
     AVG_NET_BILLINGS_365_DAYS = 9
     AVG_NET_BILLINGS_730_DAYS = 10
+    AVG_NET_BILLINGS_1095_DAYS = 11
+    AVG_NET_BILLINGS_1460_DAYS = 12
 
     @property
     def target_cols(self) -> list[str]:
@@ -323,6 +327,10 @@ class ModelStep(Enum):
                 return 365
             case ModelStep.AVG_NET_BILLINGS_730_DAYS:
                 return 730
+            case ModelStep.AVG_NET_BILLINGS_1095_DAYS:
+                return 1095
+            case ModelStep.AVG_NET_BILLINGS_1460_DAYS:
+                return 1460
             case _:
                 raise ValueError(f"Model Step {self.name} does not have a days ago value")
 

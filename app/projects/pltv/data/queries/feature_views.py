@@ -57,6 +57,8 @@ with billing_metrics as (
         net_billings_180_days_since_gross_add,
         net_billings_365_days_since_gross_add,
         net_billings_730_days_since_gross_add,
+        net_billings_1095_days_since_gross_add,
+        net_billings_1460_days_since_gross_add,
     from bi_layer_db.prod.exp_pltv_billing_metrics
 )
 
@@ -71,6 +73,8 @@ select
     sum(net_billings_180_days_since_gross_add) as net_billings_180_days,
     sum(net_billings_365_days_since_gross_add) as net_billings_365_days,
     sum(net_billings_730_days_since_gross_add) as net_billings_730_days,
+    sum(net_billings_1095_days_since_gross_add) as net_billings_1095_days,
+    sum(net_billings_1460_days_since_gross_add) as net_billings_1460_days,
 from billing_metrics
 group by all
 """

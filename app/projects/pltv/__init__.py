@@ -2,7 +2,7 @@
 PLTV (Predicted Lifetime Value) Package
 ========================================
 
-Predicts average net billings across time horizons (30-730 days) using XGBoost.
+Predicts average net billings across time horizons (30-1460 days) using XGBoost.
 Data is partitioned by promo/non-promo plans and grouped by brand/sku/channel.
 
 Usage:

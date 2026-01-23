@@ -36,6 +36,8 @@ select
     sum(case when datediff(day, gross_add__created__day, current_date()) > 180 then gross_adds else 0 end) as gross_adds_created_over_180_days_ago,
     sum(case when datediff(day, gross_add__created__day, current_date()) > 365 then gross_adds else 0 end) as gross_adds_created_over_365_days_ago,
     sum(case when datediff(day, gross_add__created__day, current_date()) > 730 then gross_adds else 0 end) as gross_adds_created_over_730_days_ago,
+    sum(case when datediff(day, gross_add__created__day, current_date()) > 1095 then gross_adds else 0 end) as gross_adds_created_over_1095_days_ago,
+    sum(case when datediff(day, gross_add__created__day, current_date()) > 1460 then gross_adds else 0 end) as gross_adds_created_over_1460_days_ago,
     -- metrics
     sum(gross_adds) as gross_adds,
     sum(case when datediff(day, gross_add__created__day, current_date()) > 1 then gross_adds_canceled_day_one else 0 end) as gross_adds_canceled_day_one,
