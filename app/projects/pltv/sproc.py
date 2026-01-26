@@ -49,7 +49,8 @@ def run_sproc(session) -> str:
         from src.writers import WriterType
         
         # Run the main pipeline with Snowflake writer
-        main(writer_type=WriterType.SNOWFLAKE, reset_schema=False)
+        # Pass session directly to avoid creating a new session from config.toml
+        main(session=session, writer_type=WriterType.SNOWFLAKE, reset_schema=False)
         
         result["completed_at"] = datetime.now().isoformat()
         result["duration_seconds"] = round(time.time() - start_time, 2)

@@ -4,7 +4,7 @@ SET MY_ROLE_NAME = 'ML_LAYER_ROLE';
 SET MY_DB_NAME = 'ML_LAYER_DB';
 SET MY_WH_NAME = 'ML_LAYER_WH';
 SET ADMIN_ROLE = 'ACCOUNTADMIN';
-SET MY_NETWORK_POLICY_NAME = 'ML_LAYER_NETWORK_POLICY';
+SET MY_NETWORK_POLICY_NAME = 'ML_LAYER_CICD_POLICY';
 
 -- 1. Context Setup
 USE ROLE IDENTIFIER($ADMIN_ROLE);
@@ -46,18 +46,15 @@ CREATE OR REPLACE USER IDENTIFIER($MY_USER_NAME)
 -- 6. Grant Role to User
 GRANT ROLE IDENTIFIER($MY_ROLE_NAME) TO USER IDENTIFIER($MY_USER_NAME);
 
--- 7. Network Policy (NOTE identifier does not work with network policy name)
-CREATE OR REPLACE NETWORK POLICY ML_LAYER_NETWORK_POLICY
-    ALLOWED_IP_LIST = (
-        '98.168.72.86', -- Office
-        '34.94.131.9', --VPN
-        '99.39.71.201', -- donato home 1
-        '66.215.109.100', -- donato home 2
-        '76.94.242.8' -- donato home 3
-    );
+-- 7. Network Policy for CI/CD
+-- Allow all IPs for the service user since it uses key-pair auth (no password)
+-- The private key is the security control, not IP restrictions
+CREATE OR REPLACE NETWORK POLICY ML_LAYER_CICD_POLICY
+    ALLOWED_IP_LIST = ('0.0.0.0/0')
+    COMMENT = 'Permissive policy for CI/CD service account with key-pair auth';
 
 ALTER USER IDENTIFIER($MY_USER_NAME) UNSET NETWORK_POLICY;
-ALTER USER IDENTIFIER($MY_USER_NAME) SET NETWORK_POLICY = ML_LAYER_NETWORK_POLICY;
+ALTER USER IDENTIFIER($MY_USER_NAME) SET NETWORK_POLICY = ML_LAYER_CICD_POLICY;
 
 -- Final check
 SELECT 

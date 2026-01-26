@@ -15,7 +15,6 @@ from projects.pltv import (
     ModelService,
 )
 from projects.pltv.data.utils import CACHE_PATH
-from src.connection.session import get_session as get_public_session
 from src.utils.slack import send_slack_notification
 import time
 
@@ -56,16 +55,26 @@ def main_level(session: Session, writer: Writer, level: Level):
     model_service.run()
 
 
-def main(writer_type: WriterType = WriterType.CSV, reset_schema: bool = False):
+def main(
+    session: Session | None = None,
+    writer_type: WriterType = WriterType.CSV, 
+    reset_schema: bool = False
+):
     """Run the model for all levels.
     
     Args:
+        session: Snowflake session. If None, creates one via get_session().
+                 Pass session directly when running as stored procedure.
         writer_type: Type of writer to use:
             - WriterType.PARQUET: Local parquet files (default, for development)
             - WriterType.CSV: Local CSV files
             - WriterType.SNOWFLAKE: Write directly to Snowflake tables
+        reset_schema: If True and writer_type is SNOWFLAKE, drops and recreates schema.
     """
-    session = get_session()
+    # Use provided session or create one (for local development)
+    if session is None:
+        session = get_session()
+    
     start_time = time.time()
 
     if reset_schema and writer_type == WriterType.SNOWFLAKE:
@@ -82,17 +91,17 @@ def main(writer_type: WriterType = WriterType.CSV, reset_schema: bool = False):
         main_level(session, writer, Level.CAMPAIGN)
     except Exception as e:
         send_slack_notification(
-            session=get_public_session(), 
+            session=session,  # Use same session for notifications
             header="PLTV Model Run", 
-            text=f"PLTV model run failed in {time.time() - start_time} seconds: {e}", 
+            text=f"PLTV model run failed in {time.time() - start_time:.1f} seconds: {e}", 
             is_success=False
         )
         raise e
 
     send_slack_notification(
-        session=get_public_session(), 
+        session=session,  # Use same session for notifications
         header="PLTV Model Run", 
-        text=f"PLTV model run completed successfully in {time.time() - start_time} seconds", 
+        text=f"PLTV model run completed successfully in {time.time() - start_time:.1f} seconds", 
         is_success=True
     )
 
