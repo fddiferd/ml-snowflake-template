@@ -7,13 +7,7 @@ if __name__ == "__main__":
     load_dotenv()
 
 from src.writers import Writer, WriterType, create_writer
-from projects.pltv import (
-    Level,
-    get_session,
-    clean_df,
-    DatasetLoader,
-    ModelService,
-)
+from projects.pltv import Level, get_session
 from projects.pltv.data.utils import CACHE_PATH
 from src.utils.slack import send_slack_notification
 import time
@@ -37,6 +31,9 @@ def main_level(session: Session, writer: Writer, level: Level):
         writer: The writer to use for saving results
         level: The level of granularity to run the model at
     """
+    # Lazy imports to avoid loading FeatureStore at module level
+    # (FeatureStore import can cause SQL issues in stored procedures)
+    from projects.pltv import DatasetLoader, ModelService, clean_df
     
     # load dataset
     loader = DatasetLoader(session)
