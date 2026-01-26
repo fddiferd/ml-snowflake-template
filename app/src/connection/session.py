@@ -24,7 +24,7 @@ def get_snowflake_active_session() -> Session | None:
 
     return None
 
-def get_session(project: Project) -> Session:
+def get_session(project: Project = Project.CORE, use_public_schema: bool = False) -> Session:
     """Create a Snowflake session using configuration from .snowflake/config.toml"""
 
     # If running in snowflake task it will use the active session
@@ -61,6 +61,8 @@ def get_session(project: Project) -> Session:
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption()
     )
+
+    schema = environment.schema_name if not use_public_schema else "PUBLIC"
     
     # Build the session with connection parameters
     session = Session.builder.configs({
@@ -70,15 +72,15 @@ def get_session(project: Project) -> Session:
         "warehouse": conn_params.get("warehouse"),
         "database": project.database_name,
         "private_key": private_key_bytes, # type: ignore
-        "schema": environment.schema_name,
+        "schema": schema,
     }).create()
 
     # create database and schema if they don't exist
     session.sql(f"CREATE DATABASE IF NOT EXISTS {project.database_name}").collect()
-    session.sql(f"CREATE SCHEMA IF NOT EXISTS {environment.schema_name}").collect()
+    session.sql(f"CREATE SCHEMA IF NOT EXISTS {schema}").collect()
     session.sql(f"USE DATABASE {project.database_name}").collect()
-    session.sql(f"USE SCHEMA {environment.schema_name}").collect()
-    logger.info(f"Using database {project.database_name} and schema {environment.schema_name}")
+    session.sql(f"USE SCHEMA {schema}").collect()
+    logger.info(f"Using database {project.database_name} and schema {schema}")
 
     logger.info(f"Connected to Snowflake for project {project.value}")
     logger.info(f"  Account: {session.get_current_account()}")
@@ -86,6 +88,6 @@ def get_session(project: Project) -> Session:
     logger.info(f"  Role: {session.get_current_role()}")
     logger.info(f"  Database: {session.get_current_database()}")
     logger.info(f"  Warehouse: {session.get_current_warehouse()}")
-    logger.info(f"  Schema: {environment.schema_name}")
+    logger.info(f"  Schema: {schema}")
 
     return session

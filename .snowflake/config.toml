@@ -1,3 +1,16 @@
+# =============================================================================
+# Snowflake Connection Configuration
+# =============================================================================
+# 
+# Single default connection - database/schema selection is handled by:
+#   - Database: Project enum in app/projects/__init__.py
+#   - Schema: TARGET env var in app/src/environment.py
+#
+# Environment Variables:
+#   - TARGET: DEV | STAGING | PROD (controls schema)
+#   - DEVELOPER: Your name (required for DEV, creates DEV_{DEVELOPER} schema)
+# =============================================================================
+
 [connections.default]
 account = "vx70256-sw09563"
 user = "ML_LAYER_USER"

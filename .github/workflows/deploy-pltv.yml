@@ -1,0 +1,113 @@
+# =============================================================================
+# PLTV Project Deployment Workflow
+# =============================================================================
+# Triggers on changes to PLTV project files or shared src/ files.
+# Deploys the PLTV stored procedure and task to Snowflake.
+#
+# To add a new project, copy this file and update:
+#   - name, paths, DATABASE, SQL_FILE, procedure/task names
+# =============================================================================
+
+name: Deploy PLTV
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app/projects/pltv/**'
+      - 'app/src/**'
+      - 'setup/pltv/**'
+      - 'snowflake.yml'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target environment (controls schema)'
+        required: true
+        default: 'PROD'
+        type: choice
+        options:
+          - STAGING
+          - PROD
+      run_task:
+        description: 'Execute task immediately after deployment'
+        type: boolean
+        default: false
+
+env:
+  SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+  TARGET: ${{ github.event.inputs.target || 'PROD' }}
+  # Project-specific settings
+  PROJECT: pltv
+  DATABASE: ML_LAYER_PLTV_DB
+
+jobs:
+  deploy:
+    name: Deploy PLTV to Snowflake
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Snowflake CLI
+        run: |
+          pip install snowflake-cli-labs
+          snow --version
+
+      - name: Configure Snowflake connection
+        run: |
+          # Write the private key to .keys/ (matching config.toml path)
+          mkdir -p .keys
+          echo "$SNOWFLAKE_PRIVATE_KEY" > .keys/rsa_key.p8
+          chmod 600 .keys/rsa_key.p8
+          
+          # Fix config.toml permissions (Snowflake CLI requires 0600)
+          chmod 600 .snowflake/config.toml
+          
+          # Set SNOWFLAKE_HOME to use repo's config
+          echo "SNOWFLAKE_HOME=$(pwd)/.snowflake" >> $GITHUB_ENV
+
+      - name: Validate Snowflake connection
+        run: snow connection test
+
+      - name: Build Snowpark artifacts
+        run: snow snowpark build --ignore-anaconda
+
+      - name: Create stage and upload artifacts
+        run: |
+          STAGE="${DATABASE}.${TARGET}.ML_LAYER_STAGE"
+          echo "Creating schema and stage..."
+          snow sql -q "CREATE SCHEMA IF NOT EXISTS ${DATABASE}.${TARGET}"
+          snow sql -q "CREATE STAGE IF NOT EXISTS ${STAGE}"
+          echo "Uploading artifacts..."
+          snow stage copy app.zip "@${STAGE}/app/" --overwrite
+
+      - name: Create procedure and tasks
+        run: snow sql -f setup/${PROJECT}/tasks.sql
+
+      - name: Execute task immediately
+        if: ${{ github.event.inputs.run_task == 'true' }}
+        run: |
+          echo "Executing PLTV task..."
+          snow sql -q "EXECUTE TASK ${DATABASE}.${TARGET}.PLTV_WEEKLY_TASK"
+
+      - name: Verify Deployment
+        run: |
+          echo "========================================="
+          echo "Deployment Summary"
+          echo "========================================="
+          echo "Project: ${PROJECT}"
+          echo "Target: ${TARGET}"
+          echo "Database: ${DATABASE}"
+          echo ""
+          echo "Verifying procedure..."
+          snow sql -q "SHOW PROCEDURES LIKE 'PLTV_RUN' IN ${DATABASE}.${TARGET}"
+          echo ""
+          echo "Verifying task..."
+          snow sql -q "SHOW TASKS LIKE 'PLTV_WEEKLY_TASK' IN ${DATABASE}.${TARGET}"

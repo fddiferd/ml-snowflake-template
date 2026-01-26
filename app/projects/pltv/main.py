@@ -15,8 +15,13 @@ from projects.pltv import (
     ModelService,
 )
 from projects.pltv.data.utils import CACHE_PATH
+from src.connection.session import get_session as get_public_session
+from src.utils.slack import send_slack_notification
+import time
+
 
 logger = logging.getLogger(__name__)
+
 
 def _reset_schema(session: Session) -> None:
     """Reset the schema for the model."""
@@ -61,6 +66,7 @@ def main(writer_type: WriterType = WriterType.CSV, reset_schema: bool = False):
             - WriterType.SNOWFLAKE: Write directly to Snowflake tables
     """
     session = get_session()
+    start_time = time.time()
 
     if reset_schema and writer_type == WriterType.SNOWFLAKE:
         _reset_schema(session)
@@ -72,8 +78,24 @@ def main(writer_type: WriterType = WriterType.CSV, reset_schema: bool = False):
     )
     
     # Run for CAMPAIGN level
-    main_level(session, writer, Level.CAMPAIGN)
+    try:
+        main_level(session, writer, Level.CAMPAIGN)
+    except Exception as e:
+        send_slack_notification(
+            session=get_public_session(), 
+            header="PLTV Model Run", 
+            text=f"PLTV model run failed in {time.time() - start_time} seconds: {e}", 
+            is_success=False
+        )
+        raise e
+
+    send_slack_notification(
+        session=get_public_session(), 
+        header="PLTV Model Run", 
+        text=f"PLTV model run completed successfully in {time.time() - start_time} seconds", 
+        is_success=True
+    )
 
 
 if __name__ == "__main__":
-    main(writer_type=WriterType.SNOWFLAKE, reset_schema=True)
+    main(writer_type=WriterType.SNOWFLAKE, reset_schema=False)

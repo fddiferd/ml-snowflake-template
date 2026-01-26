@@ -30,3 +30,7 @@ src_old/*
 *.egg-info
 *.parquet
 setup/setup_key_pair.sql
+
+# Snowflake CLI generated files
+.snowflake/logs/
+.snowflake/.cli_version.cache

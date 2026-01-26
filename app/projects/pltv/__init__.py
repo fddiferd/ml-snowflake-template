@@ -44,7 +44,6 @@ if TYPE_CHECKING:
     from projects.pltv.models import ModelService as ModelService
 
 from projects import Project
-from src.connection.session import get_session as get_snowflake_session
 
 # Config exports (enums, constants, helpers)
 from projects.pltv.config import (
@@ -113,6 +112,9 @@ from projects.pltv.models import (
 
 def get_session() -> Session:
     """Get a Snowflake session configured for the PLTV project."""
+    # Lazy import to avoid loading src.environment at module level
+    # (environment.py requires TARGET env var which isn't set during Snowflake procedure validation)
+    from src.connection.session import get_session as get_snowflake_session
     return get_snowflake_session(Project.PLTV)
 
 

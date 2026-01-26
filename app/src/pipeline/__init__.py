@@ -31,11 +31,11 @@ from src.pipeline.xgboost import (
     prepare_data as prepare_xgboost_data,
 )
 
-from src.pipeline.prophet import (
-    ProphetRegressor,
-    get_pipeline as get_prophet_pipeline,
-    prepare_data_for_prophet,
-)
+# from src.pipeline.prophet import (
+#     ProphetRegressor,
+#     get_pipeline as get_prophet_pipeline,
+#     prepare_data_for_prophet,
+# )
 
 __all__ = [
     # XGBoost
@@ -43,8 +43,8 @@ __all__ = [
     'get_xgboost_pipeline',
     'prepare_xgboost_data',
     # Prophet
-    'ProphetRegressor',
-    'get_prophet_pipeline',
-    'prepare_data_for_prophet',
+    # 'ProphetRegressor',
+    # 'get_prophet_pipeline',
+    # 'prepare_data_for_prophet',
 ]
 

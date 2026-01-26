@@ -66,3 +66,81 @@ SELECT
     $MY_ROLE_NAME as role, 
     $MY_USER_NAME as user,
     'Setup Complete - NOW RUN setup/setup_key_pair.sql' as status;
+
+-- 8. Create Deployment Stage for Snowpark procedures
+USE ROLE IDENTIFIER($MY_ROLE_NAME);
+USE DATABASE $MY_DB_NAME;
+
+-- Create stage for deploying stored procedures (used by Snowflake CLI)
+CREATE STAGE IF NOT EXISTS PUBLIC.ML_LAYER_STAGE
+    COMMENT = 'Stage for ML Layer Snowpark deployment artifacts';
+
+-- Also create for PLTV database
+CREATE DATABASE IF NOT EXISTS ML_LAYER_PLTV_DB;
+CREATE SCHEMA IF NOT EXISTS ML_LAYER_PLTV_DB.PROD;
+CREATE STAGE IF NOT EXISTS ML_LAYER_PLTV_DB.PROD.ML_LAYER_STAGE
+    COMMENT = 'Stage for PLTV Snowpark deployment artifacts';
+
+-- 9. Create Slack Notification Integration
+USE DATABASE $MY_DB_NAME;
+USE SCHEMA PUBLIC;
+
+-- grant role usage to schema
+GRANT USAGE ON SCHEMA PUBLIC TO ROLE IDENTIFIER($MY_ROLE_NAME);
+GRANT CREATE SECRET ON SCHEMA PUBLIC TO ROLE IDENTIFIER($MY_ROLE_NAME);
+
+-- Create Slack Notification Secret
+CREATE OR REPLACE SECRET ml_layer_slack_webhook_secret
+  TYPE = GENERIC_STRING
+  SECRET_STRING = 'T02GL1CBD/B09FSUGR7NK/QNUa56H4Pptyxn46OR9gIFl5';
+
+-- Grant READ on secret to role
+GRANT READ ON SECRET ml_layer_slack_webhook_secret TO ROLE IDENTIFIER($MY_ROLE_NAME);
+
+CREATE OR REPLACE NOTIFICATION INTEGRATION ml_layer_notifications
+  TYPE = WEBHOOK
+  ENABLED = TRUE
+  WEBHOOK_URL = 'https://hooks.slack.com/services/SNOWFLAKE_WEBHOOK_SECRET'
+  WEBHOOK_SECRET = ml_layer_slack_webhook_secret
+  WEBHOOK_BODY_TEMPLATE = '{
+    "text": ":rotating_light: *Task Alert*",
+    "blocks": [
+      {
+        "type": "header",
+        "text": {
+          "type": "plain_text",
+          "text": "Task Notification",
+          "emoji": true
+        }
+      },
+      {
+        "type": "section",
+        "text": {
+          "type": "mrkdwn",
+          "text": "SNOWFLAKE_WEBHOOK_MESSAGE"
+        }
+      },
+      {
+        "type": "context",
+        "elements": [
+          {
+            "type": "mrkdwn",
+            "text": "Sent from ML Layer"
+          }
+        ]
+      }
+    ]
+  }'
+  WEBHOOK_HEADERS = ('Content-Type'='application/json');
+
+-- Grant USAGE on notification integration to role
+GRANT USAGE ON INTEGRATION ml_layer_notifications TO ROLE IDENTIFIER($MY_ROLE_NAME);
+
+CALL SYSTEM$SEND_SNOWFLAKE_NOTIFICATION(
+  SNOWFLAKE.NOTIFICATION.TEXT_PLAIN(
+    SNOWFLAKE.NOTIFICATION.SANITIZE_WEBHOOK_CONTENT(
+      'Test notification: Snowflake-Slack integration is working! 🎉'
+    )
+  ),
+  SNOWFLAKE.NOTIFICATION.INTEGRATION('ml_layer_notifications')
+);
