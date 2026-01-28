@@ -9,7 +9,7 @@ from src.pipeline.xgboost import run_pipeline, run_multi_output_pipeline, PRED_Y
 from src.utils.model import evaluate_model
 from src.writers import Writer
 
-from projects.pltv.data.result_collector import ResultCollector
+from src.data import ResultCollector
 from projects.pltv.config import (
     # Enums
     Level,

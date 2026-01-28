@@ -23,7 +23,7 @@ def _reset_schema(session: Session) -> None:
     session.sql(f"CREATE SCHEMA {environment.schema_name}").collect()
 
 
-def main_level(session: Session, writer: Writer, level: Level):
+def run(session: Session, writer: Writer, level: Level):
     """Run the model for a single level.
     
     Args:
@@ -82,25 +82,28 @@ def main(
         session=session,
         folder_path=CACHE_PATH
     )
-    
-    # Run for CAMPAIGN level
-    try:
-        main_level(session, writer, Level.CAMPAIGN)
-    except Exception as e:
-        send_slack_notification(
-            session=session,  # Use same session for notifications
-            header="PLTV Model Run", 
-            text=f"PLTV model run failed in {time.time() - start_time:.1f} seconds: {e}", 
-            is_success=False
-        )
-        raise e
 
     send_slack_notification(
-        session=session,  # Use same session for notifications
+        session=session,
         header="PLTV Model Run", 
-        text=f"PLTV model run completed successfully in {time.time() - start_time:.1f} seconds", 
+        text=f"PLTV model run started for level {Level.CAMPAIGN}", 
         is_success=True
     )
+    
+    # Run for CAMPAIGN level
+    run(session, writer, Level.CAMPAIGN)
+    
+    # Only send slack notification on success (failure notifications handled by sproc)
+    try:
+        send_slack_notification(
+            session=session,
+            header="PLTV Model Run", 
+            text=f"PLTV model run completed successfully in {time.time() - start_time:.1f} seconds", 
+            is_success=True
+        )
+    except Exception:
+        # Don't fail the whole run if notification fails
+        logger.warning("Failed to send success notification to Slack")
 
 
 if __name__ == "__main__":

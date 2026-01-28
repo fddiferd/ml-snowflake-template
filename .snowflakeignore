@@ -1,0 +1,38 @@
+# =============================================================================
+# Snowflake CLI Build Ignore File
+# =============================================================================
+# This file controls what gets excluded from the app.zip artifact.
+# Format follows .gitignore patterns.
+# =============================================================================
+
+# Python build artifacts
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Cache files (can be very large)
+**/cache/
+*.parquet
+*.csv
+
+# Development files
+.env
+.venv/
+*.ipynb
+.DS_Store
+
+# Test files
+tests/
+**/test_*.py
+
+# Documentation
+*.md
+docs/
+
+# Other
+*.joblib
+*.joblib.gz
+*.gz
+*.whl

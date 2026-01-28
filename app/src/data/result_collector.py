@@ -1,3 +1,19 @@
+"""
+Result Collector
+================
+
+Utility for batching DataFrame writes to optimize Snowflake performance.
+
+Usage:
+    from src.data import ResultCollector
+    
+    collector = ResultCollector()
+    collector.add("predictions", df1)
+    collector.add("predictions", df2)  # Accumulates with df1
+    collector.add("metrics", metrics_df)
+    collector.flush(writer)  # Writes all in batch
+"""
+
 import logging
 from collections import defaultdict
 

@@ -72,11 +72,23 @@ USE DATABASE $MY_DB_NAME;
 CREATE STAGE IF NOT EXISTS PUBLIC.ML_LAYER_STAGE
     COMMENT = 'Stage for ML Layer Snowpark deployment artifacts';
 
--- Also create for PLTV database
+-- =============================================================================
+-- Project-Specific Databases
+-- =============================================================================
+-- Each ML project gets its own database: ML_LAYER_{PROJECT}_DB
+-- Add new project databases here when creating new projects.
+
+-- PLTV Database
 CREATE DATABASE IF NOT EXISTS ML_LAYER_PLTV_DB;
 CREATE SCHEMA IF NOT EXISTS ML_LAYER_PLTV_DB.PROD;
 CREATE STAGE IF NOT EXISTS ML_LAYER_PLTV_DB.PROD.ML_LAYER_STAGE
     COMMENT = 'Stage for PLTV Snowpark deployment artifacts';
+
+-- VBB Database
+CREATE DATABASE IF NOT EXISTS ML_LAYER_VBB_DB;
+CREATE SCHEMA IF NOT EXISTS ML_LAYER_VBB_DB.PROD;
+CREATE STAGE IF NOT EXISTS ML_LAYER_VBB_DB.PROD.ML_LAYER_STAGE
+    COMMENT = 'Stage for VBB Snowpark deployment artifacts';
 
 -- 9. Create Slack Notification Integration
 USE DATABASE $MY_DB_NAME;

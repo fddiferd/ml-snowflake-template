@@ -21,7 +21,7 @@ Exports:
     Config:     fv_configs, constants, and helper functions
     Types:      Partition, PartitionItem, FeatureViewConfig
     Enums:      Level, TimeHorizon, ModelStep
-    Data:       DatasetLoader, get_df, get_df_from_cache, clean_df
+    Data:       DatasetLoader, clean_df
     Model:      ModelService
 """
 
@@ -37,8 +37,6 @@ from snowflake.snowpark import Session
 
 # Type hints for lazy imports (enables IDE autocomplete & silences linter)
 if TYPE_CHECKING:
-    from projects.pltv.data.dataset import get_df as get_df
-    from projects.pltv.data.dataset import get_df_from_cache as get_df_from_cache
     from projects.pltv.data.feature_engineering import clean_df as clean_df
     from projects.pltv.data.loader import DatasetLoader as DatasetLoader
     from projects.pltv.models import ModelService as ModelService
@@ -127,8 +125,6 @@ def get_session() -> Session:
 
 _lazy_imports = {
     # Data functions
-    "get_df": ("projects.pltv.data.dataset", "get_df"),
-    "get_df_from_cache": ("projects.pltv.data.dataset", "get_df_from_cache"),
     "clean_df": ("projects.pltv.data.feature_engineering", "clean_df"),
     "DatasetLoader": ("projects.pltv.data.loader", "DatasetLoader"),
     # Model service
@@ -208,8 +204,6 @@ __all__ = [
     "ModelStepPredictionResults",
     # Data functions (lazy loaded)
     "DatasetLoader",
-    "get_df",
-    "get_df_from_cache",
     "clean_df",
     # Model (lazy loaded)
     "ModelService",

@@ -1,23 +1,23 @@
 # =============================================================================
-# PLTV Project Deployment Workflow
+# VBB Project Deployment Workflow
 # =============================================================================
-# Triggers on changes to PLTV project files or shared src/ files.
-# Deploys the PLTV stored procedure and task to Snowflake.
+# Triggers on changes to VBB project files or shared src/ files.
+# Deploys the VBB stored procedure and task to Snowflake.
 #
 # To add a new project, copy this file and update:
-#   - name, paths, DATABASE, SQL_FILE, procedure/task names
+#   - name, paths, DATABASE, PROJECT, procedure/task names
 # =============================================================================
 
-name: Deploy PLTV
+name: Deploy VBB
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'app/projects/pltv/**'
+      - 'app/projects/vbb/**'
       - 'app/src/**'
-      - 'setup/pltv/**'
+      - 'setup/vbb/**'
       - 'snowflake.yml'
   workflow_dispatch:
     inputs:
@@ -38,12 +38,12 @@ env:
   SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
   TARGET: ${{ github.event.inputs.target || 'PROD' }}
   # Project-specific settings
-  PROJECT: pltv
-  DATABASE: ML_LAYER_PLTV_DB
+  PROJECT: vbb
+  DATABASE: ML_LAYER_VBB_DB
 
 jobs:
   deploy:
-    name: Deploy PLTV to Snowflake
+    name: Deploy VBB to Snowflake
     runs-on: ubuntu-latest
     
     steps:
@@ -97,8 +97,8 @@ jobs:
       - name: Execute task immediately
         if: ${{ github.event.inputs.run_task == 'true' }}
         run: |
-          echo "Executing PLTV task..."
-          snow sql -q "EXECUTE TASK ${DATABASE}.${TARGET}.PLTV_WEEKLY_TASK"
+          echo "Executing VBB task..."
+          snow sql -q "EXECUTE TASK ${DATABASE}.${TARGET}.VBB_WEEKLY_TASK"
 
       - name: Verify Deployment
         run: |
@@ -110,7 +110,7 @@ jobs:
           echo "Database: ${DATABASE}"
           echo ""
           echo "Verifying procedure..."
-          snow sql -q "SHOW PROCEDURES LIKE 'PLTV_RUN' IN ${DATABASE}.${TARGET}"
+          snow sql -q "SHOW PROCEDURES LIKE 'VBB_RUN' IN ${DATABASE}.${TARGET}"
           echo ""
           echo "Verifying task..."
-          snow sql -q "SHOW TASKS LIKE 'PLTV_WEEKLY_TASK' IN ${DATABASE}.${TARGET}"
+          snow sql -q "SHOW TASKS LIKE 'VBB_WEEKLY_TASK' IN ${DATABASE}.${TARGET}"

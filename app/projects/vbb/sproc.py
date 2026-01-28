@@ -1,5 +1,5 @@
 """
-Stored Procedure Entry Point for PLTV
+Stored Procedure Entry Point for VBB
 =====================================
 
 This module is designed to be deployed as a Snowflake stored procedure.
@@ -13,7 +13,7 @@ from src.sproc import create_sproc_handler
 # Create the stored procedure handler using the factory
 # This eliminates ~50 lines of boilerplate code
 run_sproc = create_sproc_handler(
-    project_name="PLTV",
-    main_module_path="projects.pltv.main",
+    project_name="VBB",
+    main_module_path="projects.vbb.main",
     target="PROD"
 )

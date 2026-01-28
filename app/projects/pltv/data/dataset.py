@@ -1,10 +1,10 @@
-if __name__ == "__main__":
-    import logging
-    from dotenv import load_dotenv
-    load_dotenv()
-    logging.basicConfig(level=logging.INFO)
+"""
+PLTV Dataset Module
+===================
 
-import pandas as pd
+Loads PLTV dataset using Snowflake Feature Store.
+"""
+
 import logging
 from snowflake.snowpark import Session
 from snowflake.snowpark.dataframe import DataFrame
@@ -21,20 +21,32 @@ from projects.pltv.config import (
     get_join_keys,
 )
 from projects.pltv.data.queries.spine import QUERY as SPINE_QUERY
-from projects.pltv.data.utils import get_file_path
 
 
 logger = logging.getLogger(__name__)
 
 
 def get_dataset(session: Session, level: Level) -> DataFrame:
-    # init feature store service
+    """Load dataset using Snowflake Feature Store.
+    
+    Creates spine, entity, and feature views, then generates a dataset
+    by joining them together using the Feature Store service.
+    
+    Args:
+        session: Snowflake Session
+        level: Aggregation level (determines join keys and grouping)
+    
+    Returns:
+        DataFrame: The joined dataset with all features
+    """
+    # Initialize feature store service
     svc = FeatureStoreService(
         session, 
         name=Project.PLTV.name, 
         timestamp_col=TIMESTAMP_COL
     )
-    # spine
+    
+    # Create spine
     spine_sql = SPINE_QUERY.format(
         timestamp_col=TIMESTAMP_COL,
         group_bys=level.sql_fields,
@@ -43,13 +55,15 @@ def get_dataset(session: Session, level: Level) -> DataFrame:
     logger.info(f"Spine SQL: {spine_sql}")
     spine_df = session.sql(spine_sql)
     svc.set_spine(spine_df)
-    # entity
+    
+    # Create entity
     svc.set_entity(
         join_keys=get_join_keys(level), 
         name=f'{level.name}_ENTITY',
         recreate=True
     )
-    # feature views
+    
+    # Create feature views
     for feature_view_config in fv_configs:
         logger.info(f'Setting feature view {feature_view_config.name} for level {level.name}')
         feature_sql = feature_view_config.query.format(
@@ -64,25 +78,6 @@ def get_dataset(session: Session, level: Level) -> DataFrame:
             VERSION_NUMBER, 
             name=f'{level.name}_{feature_view_config.name}',
         )
-    # get dataset
+    
+    # Generate and return dataset
     return svc.get_dataset()
-
-def get_df(session: Session, level: Level, save_to_cache: bool = False) -> pd.DataFrame:
-    dataset = get_dataset(session, level)
-    df = dataset.to_pandas()
-    if save_to_cache:
-        df.to_parquet(get_file_path(level.name))
-    return df
-
-def get_df_from_cache(level: Level) -> pd.DataFrame:
-    try:
-        return pd.read_parquet(get_file_path(level.name))
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Cache file {get_file_path(level.name)} not found")
-
-
-if __name__ == "__main__":
-    from projects.pltv import get_session
-
-    session = get_session()
-    get_df(session, Level.CHANNEL, save_to_cache=True)

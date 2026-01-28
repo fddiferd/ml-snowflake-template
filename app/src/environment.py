@@ -1,28 +1,25 @@
+"""
+Environment Configuration
+=========================
+
+Lazy-loaded environment settings. Values are read from env vars
+on first access, not at import time (needed for Snowflake stored procedures).
+
+Usage:
+    from src.environment import environment
+    
+    if environment.target.is_dev:
+        # DEV-specific logic
+        pass
+"""
+
 import os
 import logging
 from enum import Enum
 
-
 logger = logging.getLogger(__name__)
 
 
-if __name__ == "__main__":
-    from dotenv import load_dotenv
-    load_dotenv()
-    logging.basicConfig(level=logging.INFO)
-
-
-# MARK: - Private Functions
-def _get_var(var_name: str) -> str:
-    var = os.getenv(var_name)
-    if var is None:
-        raise ValueError(f"{var_name} is not set")
-    return var
-
-def _get_optional_var(var_name: str) -> str | None:
-    return os.getenv(var_name)
-
-# MARK: - Enums
 class Target(Enum):
     DEV = "DEV"
     STAGING = "STAGING"
@@ -31,47 +28,54 @@ class Target(Enum):
     @property
     def is_dev(self) -> bool:
         return self == Target.DEV
-    
-    @property
-    def is_staging(self) -> bool:
-        return self == Target.STAGING
-    
-    @property
-    def is_prod(self) -> bool:
-        return self == Target.PROD
 
-# MARK: - Environment Class
+
 class Environment:
-    def __init__(self):
-        self.target: Target = Target(_get_var("TARGET").upper())
-        self.developer: str | None = _get_optional_var("DEVELOPER")
-        self.master_project_path: str = _get_optional_var("MASTER_PROJECT_PATH") or "GitHub"
-        self.use_cache: bool = self._get_use_cache()
-
-        self._validate_developer()
-        self._log()
-
+    """Lazy-loaded environment. Reads env vars on first access."""
+    
+    _loaded = False
+    _target: Target
+    _developer: str | None
+    _use_cache: bool
+    
+    def _load(self) -> None:
+        """Load env vars once on first access."""
+        if Environment._loaded:
+            return
+        
+        # Read TARGET (required)
+        target_str = os.getenv("TARGET")
+        if not target_str:
+            raise ValueError("TARGET is not set")
+        
+        Environment._target = Target(target_str.upper())
+        Environment._developer = os.getenv("DEVELOPER")
+        Environment._use_cache = os.getenv("USE_CACHE", "").upper() == "TRUE"
+        
+        # Validate: DEV requires DEVELOPER
+        if Environment._target == Target.DEV and not Environment._developer:
+            raise ValueError("DEVELOPER is not set for DEV target")
+        
+        logger.info(f"Environment: target={Environment._target.value}, use_cache={Environment._use_cache}")
+        Environment._loaded = True
+    
+    @property
+    def target(self) -> Target:
+        self._load()
+        return Environment._target
+    
+    @property
+    def use_cache(self) -> bool:
+        self._load()
+        return Environment._use_cache
+    
     @property
     def schema_name(self) -> str:
-        if self.target.is_dev and self.developer is not None:
-            return f"{self.target.value.upper()}_{self.developer.upper()}"
-        return self.target.value.upper()
+        self._load()
+        if Environment._target == Target.DEV and Environment._developer:
+            return f"DEV_{Environment._developer.upper()}"
+        return Environment._target.value
 
-    def _validate_developer(self) -> None:
-        if self.target.is_dev and self.developer is None:
-            raise ValueError("DEVELOPER is not set for DEV target")
 
-    def _log(self) -> None:
-        logger.info(f"Target: {self.target.value}")
-        if self.target.is_dev:
-            logger.info(f"Developer: {self.developer}")
-        logger.info(f"Schema Name: {self.schema_name}")
-        logger.info(f"Use Cache: {self.use_cache}")
-
-    def _get_use_cache(self) -> bool:
-        use_cache_var = _get_optional_var("USE_CACHE")
-        if use_cache_var is None:
-            return False
-        return use_cache_var.upper() == "TRUE"
-
+# Global instance
 environment = Environment()

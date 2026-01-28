@@ -34,3 +34,7 @@ setup/setup_key_pair.sql
 # Snowflake CLI generated files
 .snowflake/logs/
 .snowflake/.cli_version.cache
+
+# Cache directories (prevent large files from being committed)
+app/**/cache/
+**/data/cache/

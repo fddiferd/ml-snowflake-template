@@ -4,14 +4,14 @@ definition_version: '2'
 # ML Layer Snowpark Build Configuration
 # =============================================================================
 # 
-# This file is used by `snow snowpark build` to create the app.zip artifact.
+# This file is used by `snow snowpark build` to create the ml_layer.zip artifact.
 #
 # IMPORTANT: The procedure definitions below are for BUILD purposes only.
 # Actual stored procedures and tasks are created via SQL files in setup/{project}/
 # which provides more control (custom packages, tasks, EXECUTE AS OWNER).
 #
 # Usage:
-#   snow snowpark build --ignore-anaconda    # Build app.zip
+#   snow snowpark build --ignore-anaconda    # Build ml_layer.zip (renamed from app.zip)
 #
 # Deployment is handled by:
 #   - Local:  ./scripts/deploy.sh <project> <target>
@@ -35,8 +35,28 @@ entities:
     stage: ML_LAYER_PLTV_DB.<% ctx.env.target %>.ML_LAYER_STAGE
     artifacts:
       - src: app/
-        dest: app/
+        dest: ./
     handler: projects.pltv.sproc.run_sproc
+    signature: ''
+    returns: string
+    runtime: '3.10'
+    execute_as_caller: false
+
+  # ---------------------------------------------------------------------------
+  # VBB Build Configuration
+  # NOTE: Procedure is created via setup/vbb/tasks.sql, not this definition
+  # ---------------------------------------------------------------------------
+  vbb_build:
+    type: procedure
+    identifier:
+      name: VBB_RUN
+      schema: <% ctx.env.target %>
+      database: ML_LAYER_VBB_DB
+    stage: ML_LAYER_VBB_DB.<% ctx.env.target %>.ML_LAYER_STAGE
+    artifacts:
+      - src: app/
+        dest: ./
+    handler: projects.vbb.sproc.run_sproc
     signature: ''
     returns: string
     runtime: '3.10'

@@ -110,6 +110,8 @@ echo ""
 # Step 2: Build artifacts
 echo -e "${YELLOW}[2/5] Building Snowpark artifacts...${NC}"
 snow snowpark build --ignore-anaconda
+# Rename app.zip to ml_layer.zip to avoid "app" in path
+mv app.zip ml_layer.zip
 echo -e "${GREEN}Build successful!${NC}"
 echo ""
 
@@ -122,7 +124,7 @@ echo ""
 
 # Step 4: Upload artifacts to stage
 echo -e "${YELLOW}[4/5] Uploading artifacts to stage...${NC}"
-snow stage copy app.zip "@${STAGE}/app/" --overwrite
+snow stage copy ml_layer.zip "@${STAGE}/${PROJECT}/" --overwrite
 echo -e "${GREEN}Artifacts uploaded!${NC}"
 echo ""
 
