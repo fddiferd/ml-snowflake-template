@@ -44,8 +44,8 @@ CREATE OR REPLACE PROCEDURE PLTV_RUN()
 -- =============================================================================
 CREATE OR REPLACE TASK PLTV_WEEKLY_TASK
     WAREHOUSE = IDENTIFIER($MY_WH_NAME)
-    SCHEDULE = 'USING CRON 0 6 * * 1 America/Los_Angeles'  -- Monday 6am PT
-    COMMENT = 'Weekly PLTV model training and prediction run'
+    SCHEDULE = 'USING CRON 0 6 * * 1-5 America/Los_Angeles'  -- Monday thru Friday 6am PT
+    COMMENT = 'Weekly PLTV model training and prediction run (Monday thru Friday)'
 AS
     CALL PLTV_RUN();
 
