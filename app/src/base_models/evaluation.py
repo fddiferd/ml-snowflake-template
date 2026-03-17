@@ -6,5 +6,6 @@ class EvaluationResult(BaseModel):
     mae: float
     mape: float
     r2: float
+    spearman: float | None = None
 
 EvaluationResults: TypeAlias = list[EvaluationResult]
