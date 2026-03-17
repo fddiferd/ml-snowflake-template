@@ -10,28 +10,37 @@ Google's Value Based Bidding (VBB) adjusts ad spend based on predicted conversio
 
 ```
 app/projects/vbb/
-├── constants.py              # Column lists, hyperparams, feature config
+├── constants.py              # Column lists, hyperparams, GCS stage config
+├── sproc.py                  # Snowflake stored procedure entry points
+├── main_train.py             # Weekly training entry point (Slack notifications)
+├── main_predict.py           # Daily prediction entry point (Slack notifications)
 ├── data/
 │   ├── query.py              # SQL query joining spine metrics, plans, payments, zip, usage
 │   ├── training.py           # Load, filter, and cache the training set
-│   ├── prediction.py         # Load prediction data
+│   ├── prediction.py         # Load prediction data (active + canceled partitions)
 │   └── scripts/
 │       └── describe_training_data.py   # EDA script for profiling features
 ├── model/
 │   ├── pipeline.py           # VBB-specific preprocessing + shared XGBoost pipeline
-│   ├── service.py            # Orchestrator: load data, train, evaluate, save outputs
+│   ├── service.py            # Orchestrator: train(), predict(), write to table/GCS
 │   └── output/               # Saved plots, metrics, predictions (gitignored)
 └── README.md
 ```
 
-## Running the Model
+## Running Locally
 
 ```bash
 cd app
+
+# Train with full diagnostics (saves plots to model/output/)
+python -m projects.vbb.main_train
+
+# Train + predict (writes to Snowflake table + GCS stage)
+python -m projects.vbb.main_predict
+
+# Or interactively
 python -m projects.vbb.model.service
 ```
-
-This loads the training data (from cache if available), trains the model, evaluates on a 10% holdout, and saves all outputs to `model/output/`.
 
 ## Key Design Decisions
 
@@ -91,7 +100,45 @@ The training query (`data/query.py`) joins:
 - **Usage behavior** -- device, OS, connection type, ISP
 - **Cross-sell metrics** -- add-on product purchases on day one
 
-## Outputs
+## Production Deployment
+
+### Snowflake Tasks
+
+| Task | Schedule | What it does |
+|------|----------|-------------|
+| `VBB_WEEKLY_TRAIN_TASK` | Sunday 3am PT | Retrain model with full diagnostics, Slack notification with metrics |
+| `VBB_DAILY_PREDICT_TASK` | Daily 3pm PT | Train model, predict new signups, write to table + GCS per brand |
+
+Both tasks are defined in `setup/vbb/tasks.sql` and deployed via the GitHub Actions workflow on push to `main`.
+
+### Prediction Flow
+
+The daily prediction pipeline:
+
+1. **Load training data** and train a fresh model (no model persistence -- ensures predictions always use the latest training data)
+2. **Load prediction data** -- new signups since the last run, partitioned into:
+   - **Active customers** -- run through the model, get predicted `NET_BILLINGS`
+   - **Canceled customers** (<24h) -- assigned `YHAT = 0` (clear negative signal to Google)
+3. **Concatenate** active predictions + canceled zeros
+4. **Append** to `PREDICTION_RESULTS` table in Snowflake
+5. **Export one CSV per brand** to `@VBB_GCS_STAGE/vbb_predictions_{brand}.csv` in GCS bucket `gs://ml-layer-vbb/`
+
+### GCS Stage Setup
+
+The external stage is created via `setup/vbb/google_cloud_bucket.sql` (requires ACCOUNTADMIN):
+- Storage integration: `VBB_GCS_INTEGRATION`
+- GCS bucket: `gs://ml-layer-vbb/`
+- Stage: `VBB_GCS_STAGE` in `ML_LAYER_VBB_DB.PROD`
+
+### Slack Notifications
+
+Both train and predict entry points send Slack notifications via the `ml_layer_notifications` webhook integration on start and completion (with elapsed time and key metrics).
+
+### GitHub Actions
+
+The workflow (`.github/workflows/deploy-vbb.yml`) triggers on push to `main` when VBB or shared source files change. It builds the Snowpark zip, uploads to the deployment stage, and creates/updates the stored procedures and tasks.
+
+## Training Outputs
 
 After a training run, `model/output/` contains:
 - `metrics.txt` -- RMSE, MAE, MAPE, R-squared, Spearman correlation

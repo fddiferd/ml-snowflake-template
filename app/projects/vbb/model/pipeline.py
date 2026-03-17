@@ -2,7 +2,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from src.pipeline.xgboost import run_pipeline, PRED_YHAT_COL, XGBoostRegressorWrapper
+from src.pipeline.xgboost import run_pipeline, PRED_YHAT_COL, PRED_YHAT_LOWER_COL, PRED_YHAT_UPPER_COL, XGBoostRegressorWrapper
 from src.utils.model import evaluate_model
 from src.base_models.evaluation import EvaluationResult
 from projects.vbb.constants import (
@@ -69,6 +69,8 @@ def train_and_evaluate(
 
     # 4 -- inverse transform predictions and target back to dollar space
     result_df[PRED_YHAT_COL] = np.expm1(result_df[PRED_YHAT_COL].clip(lower=0))
+    result_df[PRED_YHAT_LOWER_COL] = np.expm1(result_df[PRED_YHAT_LOWER_COL].clip(lower=0))
+    result_df[PRED_YHAT_UPPER_COL] = np.expm1(result_df[PRED_YHAT_UPPER_COL].clip(lower=0))
     result_df[TARGET_COL] = np.expm1(result_df[TARGET_COL])
 
     # 5 -- evaluate on original dollar scale
@@ -85,6 +87,48 @@ def train_and_evaluate(
     logger.info(f"Top features: {feature_importance_df.head(10)['feature'].tolist()}")
 
     return result_df, model, evaluation, feature_importance_df
+
+
+def predict_only(
+    train_df: pd.DataFrame,
+    predict_df: pd.DataFrame,
+) -> tuple[pd.DataFrame, XGBoostRegressorWrapper]:
+    """Train on full train_df then predict on predict_df (no evaluation).
+
+    Used by the daily prediction flow where predict_df has no target column.
+    Returns predictions in dollar space with YHAT clipped at 0.
+    """
+    train_df = train_df.copy()
+    predict_df = predict_df.copy()
+
+    te_mappings = _fit_target_encoder(train_df)
+    train_df = _apply_target_encoder(train_df, te_mappings)
+    predict_df = _apply_target_encoder(predict_df, te_mappings)
+
+    train_df = _add_time_features(train_df)
+    predict_df = _add_time_features(predict_df)
+
+    train_df[TARGET_COL] = np.log1p(train_df[TARGET_COL])
+
+    num_cols_extended = NUM_COLS + [f'{c}_TE' for c in TARGET_ENCODE_COLS] + GENERATED_TIME_COLS
+
+    result_df, model = run_pipeline(
+        train_df=train_df,
+        predict_df=predict_df,
+        target_col=TARGET_COL,
+        cat_cols=CAT_COLS,
+        num_cols=num_cols_extended,
+        boolean_cols=BOOLEAN_COLS,
+        max_categories=MAX_CATEGORIES,
+        xgboost_params=XGBOOST_PARAMS,
+    )
+
+    result_df[PRED_YHAT_COL] = np.expm1(result_df[PRED_YHAT_COL].clip(lower=0))
+    result_df[PRED_YHAT_LOWER_COL] = np.expm1(result_df[PRED_YHAT_LOWER_COL].clip(lower=0))
+    result_df[PRED_YHAT_UPPER_COL] = np.expm1(result_df[PRED_YHAT_UPPER_COL].clip(lower=0))
+    logger.info(f"Predicted {len(result_df):,} rows (mean YHAT: ${result_df[PRED_YHAT_COL].mean():.2f})")
+
+    return result_df, model
 
 
 # ---------------------------------------------------------------------------

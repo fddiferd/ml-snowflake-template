@@ -1,26 +1,24 @@
 -- =============================================================================
--- VBB Project - Stored Procedure and Task Setup
+-- VBB Project - Stored Procedures and Task Setup
 -- =============================================================================
--- This file creates the VBB_RUN stored procedure and VBB_WEEKLY_TASK.
+-- Creates two stored procedures (train + predict) and two scheduled tasks.
 -- Run via: snow sql -f setup/vbb/tasks.sql
 -- =============================================================================
 
--- Configuration Variables (Single Source of Truth)
--- These should match the values in app/src/shared_config.py
+-- Configuration Variables
 SET MY_ROLE_NAME = 'ML_LAYER_ROLE';
 SET MY_WH_NAME = 'ML_LAYER_WH';
 
--- Use the ML Layer role
 USE ROLE IDENTIFIER($MY_ROLE_NAME);
-
--- Set database and schema
 USE DATABASE ML_LAYER_VBB_DB;
 USE SCHEMA PROD;
 
 -- =============================================================================
--- Stored Procedure
+-- Stored Procedures
 -- =============================================================================
-CREATE OR REPLACE PROCEDURE VBB_RUN()
+
+-- Weekly training procedure (full diagnostics)
+CREATE OR REPLACE PROCEDURE VBB_TRAIN()
     RETURNS STRING
     LANGUAGE PYTHON
     RUNTIME_VERSION = '3.10'
@@ -31,44 +29,76 @@ CREATE OR REPLACE PROCEDURE VBB_RUN()
         'scikit-learn',
         'numpy',
         'xgboost',
-        'shap',
+        'scipy',
         'joblib',
         'toml',
         'pydantic'
     )
     IMPORTS = ('@ML_LAYER_VBB_DB.PROD.ML_LAYER_STAGE/vbb/ml_layer.zip')
-    HANDLER = 'projects.vbb.sproc.run_sproc'
+    HANDLER = 'projects.vbb.sproc.run_train_sproc'
+    EXECUTE AS OWNER;
+
+-- Daily prediction procedure (train + predict + write to table/GCS)
+CREATE OR REPLACE PROCEDURE VBB_PREDICT()
+    RETURNS STRING
+    LANGUAGE PYTHON
+    RUNTIME_VERSION = '3.10'
+    PACKAGES = (
+        'snowflake-snowpark-python',
+        'snowflake-ml-python',
+        'pandas',
+        'scikit-learn',
+        'numpy',
+        'xgboost',
+        'scipy',
+        'joblib',
+        'toml',
+        'pydantic'
+    )
+    IMPORTS = ('@ML_LAYER_VBB_DB.PROD.ML_LAYER_STAGE/vbb/ml_layer.zip')
+    HANDLER = 'projects.vbb.sproc.run_predict_sproc'
     EXECUTE AS OWNER;
 
 -- =============================================================================
--- Scheduled Task
+-- Scheduled Tasks
 -- =============================================================================
-CREATE OR REPLACE TASK VBB_WEEKLY_TASK
+
+-- Weekly training: Sunday 3am PT
+CREATE OR REPLACE TASK VBB_WEEKLY_TRAIN_TASK
     WAREHOUSE = IDENTIFIER($MY_WH_NAME)
-    SCHEDULE = 'USING CRON 0 6 * * 1 America/Los_Angeles'  -- Monday 6am PT
-    COMMENT = 'Weekly VBB model training and prediction run'
+    SCHEDULE = 'USING CRON 0 3 * * 0 America/Los_Angeles'
+    COMMENT = 'Weekly VBB model training with diagnostics'
 AS
-    CALL VBB_RUN();
+    CALL VBB_TRAIN();
 
--- Enable error notifications (uncomment when notification integration is created)
--- ALTER TASK VBB_WEEKLY_TASK SET
---     ERROR_INTEGRATION = 'ML_LAYER_NOTIFICATIONS';
+-- Daily prediction: 3pm PT
+CREATE OR REPLACE TASK VBB_DAILY_PREDICT_TASK
+    WAREHOUSE = IDENTIFIER($MY_WH_NAME)
+    SCHEDULE = 'USING CRON 0 15 * * * America/Los_Angeles'
+    COMMENT = 'Daily VBB prediction export to table and GCS'
+AS
+    CALL VBB_PREDICT();
 
--- Resume the task (tasks are created in suspended state)
-ALTER TASK VBB_WEEKLY_TASK RESUME;
+-- Resume tasks (created in suspended state)
+ALTER TASK VBB_WEEKLY_TRAIN_TASK RESUME;
+ALTER TASK VBB_DAILY_PREDICT_TASK RESUME;
 
--- Verify creation
-SHOW TASKS LIKE 'VBB_WEEKLY_TASK';
+-- Verify
+SHOW TASKS LIKE 'VBB_%';
 
 -- =============================================================================
 -- Useful Commands
 -- =============================================================================
--- Suspend task:    ALTER TASK VBB_WEEKLY_TASK SUSPEND;
--- Resume task:     ALTER TASK VBB_WEEKLY_TASK RESUME;
--- Execute now:     EXECUTE TASK VBB_WEEKLY_TASK;
--- Manual call:     CALL VBB_RUN();
+-- Suspend tasks:   ALTER TASK VBB_WEEKLY_TRAIN_TASK SUSPEND;
+--                  ALTER TASK VBB_DAILY_PREDICT_TASK SUSPEND;
+-- Resume tasks:    ALTER TASK VBB_WEEKLY_TRAIN_TASK RESUME;
+--                  ALTER TASK VBB_DAILY_PREDICT_TASK RESUME;
+-- Execute now:     EXECUTE TASK VBB_WEEKLY_TRAIN_TASK;
+--                  EXECUTE TASK VBB_DAILY_PREDICT_TASK;
+-- Manual call:     CALL VBB_TRAIN();
+--                  CALL VBB_PREDICT();
 -- View history:
 --   SELECT * FROM TABLE(INFORMATION_SCHEMA.TASK_HISTORY(
---       TASK_NAME => 'VBB_WEEKLY_TASK',
+--       TASK_NAME => 'VBB_DAILY_PREDICT_TASK',
 --       SCHEDULED_TIME_RANGE_START => DATEADD('day', -7, CURRENT_TIMESTAMP())
 --   )) ORDER BY SCHEDULED_TIME DESC;

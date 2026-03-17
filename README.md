@@ -3,6 +3,7 @@
 ```
 
 ./scripts/deploy.sh pltv prod
+./scripts/deploy.sh pltv vbb
 ./scripts/deploy.sh adwords_gclid_upload prod
 
 

@@ -97,8 +97,8 @@ jobs:
       - name: Execute task immediately
         if: ${{ github.event.inputs.run_task == 'true' }}
         run: |
-          echo "Executing VBB task..."
-          snow sql -q "EXECUTE TASK ${DATABASE}.${TARGET}.VBB_WEEKLY_TASK"
+          echo "Executing VBB predict task..."
+          snow sql -q "EXECUTE TASK ${DATABASE}.${TARGET}.VBB_DAILY_PREDICT_TASK"
 
       - name: Verify Deployment
         run: |
@@ -109,8 +109,8 @@ jobs:
           echo "Target: ${TARGET}"
           echo "Database: ${DATABASE}"
           echo ""
-          echo "Verifying procedure..."
-          snow sql -q "SHOW PROCEDURES LIKE 'VBB_RUN' IN ${DATABASE}.${TARGET}"
+          echo "Verifying procedures..."
+          snow sql -q "SHOW PROCEDURES LIKE 'VBB_%' IN ${DATABASE}.${TARGET}"
           echo ""
-          echo "Verifying task..."
-          snow sql -q "SHOW TASKS LIKE 'VBB_WEEKLY_TASK' IN ${DATABASE}.${TARGET}"
+          echo "Verifying tasks..."
+          snow sql -q "SHOW TASKS LIKE 'VBB_%' IN ${DATABASE}.${TARGET}"
