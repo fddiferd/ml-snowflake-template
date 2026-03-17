@@ -1,7 +1,7 @@
 # Notebook func
 from src.environment import environment
 
-def set_project_root_for_notebook(master_project_path: str = environment.master_project_path):
+def set_project_root_for_notebook(master_project_path: str = environment.master_project_path): # type: ignore
     """Ensure that the current working directory is the folder below 'master_project_path' (default: 'GitHub')"""
     import os
     import logging

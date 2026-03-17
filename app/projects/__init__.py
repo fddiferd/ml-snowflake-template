@@ -28,6 +28,7 @@ class Project(Enum):
     # Specific ML projects
     PLTV = "PLTV"  # Predicted Lifetime Value
     VBB = "VBB"    # VBB Model
+    ADWORDS_GCLID_UPLOAD = "ADWORDS_GCLID_UPLOAD" # Adwords GCLID Upload
 
     @property
     def database_name(self) -> str:
